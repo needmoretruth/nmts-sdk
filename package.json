@@ -1,6 +1,6 @@
 {
   "name": "@needmoretruth/nmts-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Put, get and list files in an NMTS account from your own program: open-source, end-to-end encrypted storage on the Walrus network, with the keys on your machine. One constructor, three methods, typed.",
   "license": "Apache-2.0",
   "publishConfig": {
