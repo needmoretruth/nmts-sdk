@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discord — talk about NMTS · NMTS 이야기를 나누는 곳
+    url: https://discord.gg/pcmRkVmVZk
+    about: Questions, ideas, and what people are building. English or Korean. 영어와 한국어 둘 다 좋습니다.
+  - name: Security problem · 보안 문제
+    url: https://nmts.me/security
+    about: Report it privately instead — email nmts@nmts.me, or use the form that needs no account.
+  - name: NMTS itself — the service, the browser app, an account
+    url: https://nmts.me/ask
+    about: This repository is one part of NMTS. Anything about the running service goes here.
+  - name: Different licence terms
+    url: https://nmts.me
+    about: Write to nmts@nmts.me and say what you are building and which part of the licence is in the way.

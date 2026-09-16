@@ -1,0 +1,88 @@
+# ⛔ IT REACTS TO `push` AND TO `pull_request` — never to `pull_request_target`. The difference is
+#    the whole security story and it is one word wide: a `pull_request` run of a fork's branch gets
+#    a READ-ONLY token and NO secrets, and GitHub holds a first-time contributor's run until a
+#    maintainer approves it; `pull_request_target` runs that same stranger's code WITH this
+#    repository's token. The publish gate refuses the second and every other externally startable
+#    trigger — see deploy/lib/workflow-triggers.mjs in the source this file is exported from.
+#
+# ⚠ Outside code is merged here, under the Contributor License Agreement. Accepting a patch and
+#   running nothing on it would be worse than refusing patches, which is why this reacts to pull
+#   requests at all.
+#
+# ⚠ `npm install`, not `npm ci`. There is no lock file in this package, deliberately: the one
+#   dependency is resolved from a version RANGE, and the range is the point — the command-line
+#   package this is built on can release a patch without this repository going stale. A lock file
+#   would pin what the range deliberately leaves open, and `npm ci` would then refuse to install
+#   at all, because the published manifest and a lock made in the source tree cannot agree.
+#
+# ⚠ Three operating systems because that is the claim the documentation makes. Plain JavaScript
+#   with no native build step should run wherever Node runs, and "should" is not something a
+#   reader can check — this is.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["22", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+
+      # ⛔ WHAT THE PACKAGE CARRIES, NOT WHAT THE CHECKOUT CONTAINS. A test suite runs the source
+      #    from a checkout, and that is not how anybody else gets this. `files` in the manifest
+      #    decides what goes out, `prepack` is what builds `dist/` on the way — and a package that
+      #    ships an empty `dist/` still publishes successfully, and a published version can never
+      #    be taken back. So the list is printed, and the entry point the manifest names is
+      #    required to be in it.
+      - name: The package carries its entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          # ⛔ ASK npm FOR THE NAME; DO NOT GUESS IT. A glob for the tarball stopped matching once
+          #    already in a sibling repository, the day the package took a scoped name: npm
+          #    flattens the scope into the filename. `--silent` prints the filename and nothing else.
+          TARBALL="$(npm pack --silent | tail -1)"
+          tar -tzf "./$TARBALL" > contents.txt
+          cat contents.txt
+          entry="package/$(node -p "require('./package.json').types.replace(/^\.\//, '')")"
+          grep -qF "$entry" contents.txt
+          grep -qF "package/README.md" contents.txt
+          grep -qF "package/LICENSE" contents.txt
+
+      # ⛔ THE PACKAGE INSTALLED, NOT THE DIRECTORY IMPORTED. Everything above resolves imports
+      #    through this checkout. Somebody else installs a tarball into an empty project, and the
+      #    `exports` map — not the file layout — decides what they can reach. That map has been
+      #    wrong in a way no test suite could see: importing the package name failed while every
+      #    test passed, because the tests imported paths.
+      - name: The installed package imports by its name
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARBALL="$(npm pack --silent | tail -1)"
+          name="$(node -p "require('./package.json').name")"
+          mkdir -p ../consumer
+          cp "./$TARBALL" ../consumer/
+          cd ../consumer
+          npm init -y > /dev/null
+          npm pkg set type=module > /dev/null
+          npm install "./$TARBALL"
+          node -e "import('$name').then((m) => { if (typeof m.Nmts !== 'function') { throw new Error('Nmts is not exported'); } console.log('imported', Object.keys(m).join(' ')); })"

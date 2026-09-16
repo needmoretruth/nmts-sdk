@@ -1,0 +1,62 @@
+{
+  "name": "@needmoretruth/nmts-sdk",
+  "version": "0.1.0",
+  "description": "Put, get and list files in an NMTS account from your own program: open-source, end-to-end encrypted storage on the Walrus network, with the keys on your machine. One constructor, three methods, typed.",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/needmoretruth/nmts-sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/needmoretruth/nmts-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/needmoretruth/nmts-sdk/issues"
+  },
+  "keywords": [
+    "nmts",
+    "walrus",
+    "sui",
+    "encryption",
+    "e2ee",
+    "storage",
+    "sdk",
+    "backend",
+    "agent"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE",
+    "LICENSING.md"
+  ],
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run compile",
+    "pretest": "node scripts/ensure-cli.mjs",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@needmoretruth/nmts-cli": "^0.35.0"
+  }
+}

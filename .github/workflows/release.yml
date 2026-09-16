@@ -1,0 +1,162 @@
+# Cuts a release when a version tag is pushed.
+#
+# ⛔ THE RELEASE THAT MATTERS HERE IS THE REGISTRY ONE — and that is the difference between this
+#    package and the command-line tool beside it. That tool can be installed straight from its
+#    repository, so a GitHub release alone is a complete release of it. A library is not installed
+#    that way: `npm install @needmoretruth/nmts-sdk` is the only line anybody will type. The GitHub
+#    release below is still cut, because it is where the notes and the exact tarball live, but the
+#    registry job is what makes the install line true.
+#
+# ⛔ IT REACTS TO A TAG ONLY — never to `pull_request`, and never to an ordinary push on a branch.
+#    A release is somebody deliberately naming a version. Nothing here should happen by accident,
+#    and the registry step in particular cannot be taken back once it has.
+#
+# ⛔ THE TAG AND THE MANIFEST MUST AGREE, and the run stops if they do not. A release whose version
+#    disagrees with the tag it was cut from is one nobody can reason about afterwards, and by the
+#    time anybody notices, people have already installed it.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  # ⛔ THE RELEASE IS GATED ON EVERY OPERATING SYSTEM THE DOCUMENTATION CLAIMS, not just the one
+  #    the release runner happens to be. A tag is exactly the moment somebody on Windows installs
+  #    it. The matrix is the same one `test.yml` runs on ordinary pushes; the publish gate in the
+  #    source this is exported from compares the two, so they cannot drift apart quietly.
+  #
+  # ⚠ It is a copy rather than a `workflow_call`, deliberately. This repository reacts to `push`
+  #   and to nothing else, and the publish gate enforces that by refusing any other trigger in an
+  #   `on:` block. Widening that rule to save eight lines of YAML is the wrong trade.
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["22", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      # ⚠ `npm install`, not `npm ci` — the one dependency is a version range and this package
+      #   carries no lock file on purpose. The reason is written out in test.yml.
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  # What every tag gets. No credential beyond the token GitHub gives the run itself.
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  github:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      # To create the release and attach the tarball to it.
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: The tag says what the manifest says
+        run: |
+          set -euo pipefail
+          declared=$(node -p "require('./package.json').version")
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "tag $GITHUB_REF_NAME does not match version $declared in package.json" >&2
+            exit 1
+          fi
+
+      - name: Install
+        run: npm install
+
+      # Listing what goes out first puts the exact file list into the log of the run that released
+      # it — the package contents are the registry's rules to apply, not ours to assume. `dist/` is
+      # not in this repository; `prepack` builds it while npm packs, and this is where that is
+      # visible.
+      - name: What goes out
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          # ⛔ ASK npm FOR THE NAME; DO NOT GUESS IT — see the same note in test.yml. The release
+          #    step below attaches this file, so a wrong guess here means a tag with no download.
+          echo "TARBALL=$(npm pack --silent | tail -1)" >> "$GITHUB_ENV"
+
+      # ⛔ The notes are written with the tag substituted AFTERWARDS rather than by the shell.
+      #    They contain backticks, and a shell heredoc that expands variables also runs those.
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTES'
+          From the registry:
+
+              npm install @needmoretruth/nmts-sdk@VERSION
+
+          Node 22 or newer. Nothing is compiled by a C compiler and there is no native build
+          step; the encryption engine is a WebAssembly module carried by the command-line
+          package this one is built on.
+          NOTES
+          sed -i "s|@VERSION|@${GITHUB_REF_NAME#v}|" notes.md
+          gh release create "$GITHUB_REF_NAME" "./$TARBALL" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md
+
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  # OFF BY DEFAULT. Publishing to the npm registry needs a one-time setup on the registry side,
+  # and a version published there can never be taken back or its name released. So the switch is a
+  # repository variable rather than a code change: set `PUBLISH_TO_NPM` to `true` in this
+  # repository's settings, on the day the registry side is ready, and the next tag goes out.
+  #
+  # ⛔ THE REGISTRY SIDE IS NOT SET UP FROM HERE AND CANNOT BE. "Trusted publishing" is configured
+  #    on the package's own page in the registry, by the account that owns the scope — naming this
+  #    repository and this workflow file — and that account is the owner's. Nothing in this
+  #    repository can do it, check it, or tell whether it has been done; the first tag after it is
+  #    switched on is what says so. Until then this job is skipped.
+  #
+  # ⛔ NO LONG-LIVED TOKEN LIVES IN THIS REPOSITORY. When it is switched on, publishing
+  #    authenticates with a short-lived OpenID Connect credential the run mints for itself, which
+  #    the registry accepts only for this repository and this workflow file. A stolen repository
+  #    secret is a thing that can be stolen; there is none here.
+  #
+  # WHAT `--provenance` ADDS: the registry records, and shows on the package page, which repository
+  # and which workflow run produced these bytes. It says where the package came from. It does not
+  # say the code is correct, and nothing here claims otherwise.
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  npm:
+    needs: github
+    if: vars.PUBLISH_TO_NPM == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to mint the short-lived credential described above, and for provenance.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs a recent npm; the one bundled with the runner's Node may be older.
+      - name: A recent npm
+        run: npm install -g npm@latest
+
+      - name: Install
+        run: npm install
+
+      - name: Publish
+        run: npm publish --provenance --access public
