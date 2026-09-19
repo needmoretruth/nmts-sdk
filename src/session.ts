@@ -25,7 +25,7 @@ import {
   resolveServer,
   type CryptoGlue,
   type Network,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
 import { requireText, type Root } from "./root.ts";
 
@@ -43,7 +43,14 @@ export interface ServerOptions {
 /** An account this process can act for: the root that holds its key, and where it talks. */
 export interface Opened {
   readonly root: Root;
-  readonly apiKey: string;
+  /**
+   * What goes in the one header the server reads: an API key, or a delegation token.
+   *
+   * ⛔ NAMED FOR WHAT IT IS RATHER THAN FOR ONE OF THE TWO. Everything under this line hands it
+   *    straight to a request, and a field called `apiKey` carrying a delegation token is how a
+   *    reader comes to believe a delegated client cannot do something it can.
+   */
+  readonly bearer: string;
   readonly server: string;
   readonly network: Network;
 }
@@ -51,7 +58,7 @@ export interface Opened {
 /** The account WHILE one call holds its code — everything the library surface underneath takes. */
 export interface Held {
   readonly code: string;
-  readonly apiKey: string;
+  readonly bearer: string;
   readonly server: string;
   readonly network: Network;
   readonly accountId: string;
@@ -60,18 +67,26 @@ export interface Held {
 /**
  * Check what can be checked without the code, and work out where this account talks.
  *
- * The key is only checked for being present; the server is what judges a key, on the first request.
- * Nothing here borrows the code, so a caller who got the key wrong is refused without a business's
- * store having been opened for nothing.
+ * The credential is only checked for being present; the server is what judges one, on the first
+ * request. Nothing here borrows the code, so a caller who got it wrong is refused without a
+ * business's store having been opened for nothing.
  */
 export function openAccount(root: Root, options: ServerOptions = {}): Opened {
-  const apiKey = requireText(
-    root.identity.apiKey,
-    "API key",
-    "Make one on the account screen at nmts.me and pass it as `apiKey`, or set NMTS_API_KEY_FILE.",
-  );
+  const identity = root.identity;
+  const bearer =
+    identity.kind === "api-key"
+      ? requireText(
+          identity.apiKey,
+          "API key",
+          "Make one on the account screen at nmts.me and pass it as `apiKey`, or set NMTS_API_KEY_FILE.",
+        )
+      : requireText(
+          identity.token,
+          "delegation token",
+          "Ask the business this account belongs to for one, and pass it as `delegation`.",
+        );
   const server = resolveServer(options.server);
-  return { root, apiKey, server, network: resolveNetwork(server, options.network) };
+  return { root, bearer, server, network: resolveNetwork(server, options.network) };
 }
 
 /**
@@ -89,7 +104,7 @@ export async function withAccount<T>(opened: Opened, body: (held: Held) => Promi
     const identity = await identityOf(code);
     return body({
       code,
-      apiKey: opened.apiKey,
+      bearer: opened.bearer,
       server: opened.server,
       network: opened.network,
       accountId: identity.accountId,

@@ -74,13 +74,15 @@ for (const { name, root, opens } of rootsUnderTest()) {
     });
   });
 
-  test(`[${name}] an empty API key refuses before any request is made`, async () => {
+  // ⚠ EITHER CREDENTIAL, EACH NAMED AS ITSELF: the refusal says which one was asked for, so a
+  //   caller who filled in the wrong field is told which field. This row walks both.
+  test(`[${name}] an empty credential refuses before any request is made`, async () => {
     await withSandbox(drive, `sdk-list-nokey-${name}`, async (code) => {
-      await assert.rejects(client(code, " ").list(), /No API key/);
+      await assert.rejects(client(code, " ").list(), /No (API key|delegation token) was given/);
       assert.deepEqual(drive.calls, []);
       // ⛔ AND WITHOUT TAKING THE KEY OUT. A call that could not have worked is not a reason to open
       //    a business's sealed store.
-      assert.equal(opens(), 0, "the key was taken out for a call refused for its API key");
+      assert.equal(opens(), 0, "the key was taken out for a call refused for its credential");
     });
   });
 }

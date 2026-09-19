@@ -18,10 +18,27 @@
 // ⚠ `root` IS A FUNCTION, NOT A `Root`. Every test makes its own account in its own sandbox, and a
 //   root is the thing that holds one account's key, so it cannot exist before the account does.
 
+import { generateBusinessKeys, mintDelegation, registerHost, toBase64Url, type Host } from "@needmoretruth/nmts-cli/portable";
+import { nodeHost } from "@needmoretruth/nmts-cli";
+
 import { deviceRoot, managedRoot, type Credentials, type Root } from "../src/root.ts";
+import { memoryState } from "../src/state-memory.ts";
+
+/**
+ * Every test runs against the Node host with its state in MEMORY.
+ *
+ * ⛔ THE ENGINE IS REAL AND THE STORE IS NOT. What these tests prove is what the verbs answer, and
+ *    that comes out of the real WebAssembly; what they must not do is leave a kept file list or an
+ *    unfinished upload in whoever's home directory ran them, or read one left by the last run.
+ *
+ * ⛔ REGISTERED HERE, AT IMPORT, because every verb test imports this file for the registry below.
+ *    A host registered inside a test would apply to whatever ran after it in the same process.
+ */
+const withMemory: Host = { ...nodeHost(), state: memoryState() };
+registerHost(withMemory);
 
 export interface NamedRoot {
-  /** What a failing assertion prints: `device` or `managed`. */
+  /** What a failing assertion prints: `device`, `managed` or `delegation`. */
   readonly name: string;
   /** This kind of root over one sandbox's credentials. Starts the opening count again. */
   readonly root: (credentials: Credentials) => Root;
@@ -33,41 +50,78 @@ export interface NamedRoot {
   readonly opens: () => number;
 }
 
-/** The roots under test. Two today; the gateway root joins them when there is one. */
+/**
+ * A token of the shape a business mints, made once, from a key pair nobody owns.
+ *
+ * ⚠ THE FAKE SERVER DOES NOT VERIFY IT, and that is right rather than a gap: whether a signature
+ *   holds is the server's judgement and is tested where the verifier is. What the registry below
+ *   proves is the other half — that every verb carries whichever credential it was given, and that
+ *   none of them was written for one kind and left broken for the other.
+ */
+const BUSINESS = generateBusinessKeys();
+const DELEGATION_TOKEN = mintDelegation({
+  business: toBase64Url(new Uint8Array(16).fill(1)),
+  user: toBase64Url(new Uint8Array(16).fill(2)),
+  privateKey: BUSINESS.privateKey,
+  scope: ["files_read", "files_write", "storage_spend"],
+  ttlSecs: 3_600,
+});
+
+/** Count a `withCode` without changing what it does. */
+function counting(root: Root, count: () => void): Root {
+  return {
+    mode: root.mode,
+    identity: root.identity,
+    withCode: <T>(use: (code: string) => Promise<T>): Promise<T> => {
+      count();
+      return root.withCode(use);
+    },
+  };
+}
+
+/** The roots under test. Three today; the gateway root joins them when there is one. */
 export function rootsUnderTest(): readonly NamedRoot[] {
   let deviceOpens = 0;
   let managedOpens = 0;
+  let delegatedOpens = 0;
   return [
     {
       name: "device",
       root: (credentials: Credentials): Root => {
         deviceOpens = 0;
-        const root = deviceRoot(credentials);
-        return {
-          mode: root.mode,
-          identity: root.identity,
-          withCode: <T>(use: (code: string) => Promise<T>): Promise<T> => {
-            deviceOpens += 1;
-            return root.withCode(use);
-          },
-        };
+        return counting(deviceRoot(credentials), () => (deviceOpens += 1));
       },
       opens: () => deviceOpens,
     },
     {
       name: "managed",
-      root: ({ accountCode, apiKey }: Credentials): Root => {
+      root: (credentials: Credentials): Root => {
         managedOpens = 0;
-        const sealed = accountCode;
-        return managedRoot({
-          openCode: async () => {
-            managedOpens += 1;
-            return sealed;
-          },
-          apiKey,
-        });
+        const sealed = credentials.accountCode;
+        const openCode = async (): Promise<string> => {
+          managedOpens += 1;
+          return sealed;
+        };
+        return credentials.delegation === undefined
+          ? managedRoot({ openCode, apiKey: credentials.apiKey })
+          : managedRoot({ openCode, delegation: credentials.delegation });
       },
       opens: () => managedOpens,
+    },
+    {
+      // ⛔ THE SAME KEY HOLDER, THE OTHER CREDENTIAL. A business's user holds their own code and
+      //    speaks with a token their business signed, so what this row varies is the identity and
+      //    not the root — which is exactly the axis a verb written for an API key would break on.
+      name: "delegation",
+      root: (credentials: Credentials): Root => {
+        delegatedOpens = 0;
+        // ⚠ A blank credential stays blank, so the test that proves a verb refuses before it makes
+        //   a request proves it for this identity too rather than quietly skipping it.
+        const given = credentials.delegation ?? credentials.apiKey ?? "";
+        const delegation = given.trim() === "" ? given : DELEGATION_TOKEN;
+        return counting(deviceRoot({ accountCode: credentials.accountCode, delegation }), () => (delegatedOpens += 1));
+      },
+      opens: () => delegatedOpens,
     },
   ];
 }

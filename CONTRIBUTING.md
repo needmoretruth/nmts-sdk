@@ -4,7 +4,7 @@
 [NMTS](https://nmts.me) account. It is a thin layer: the encryption, the uploads and the sealed
 file list all belong to the command-line package it is built on
 ([nmts-cli](https://github.com/needmoretruth/nmts-cli)), and this package adds a constructor and
-three methods on top of them. This file says what is welcome here and what cannot be accepted.
+three methods on top of them.
 
 **Talk about NMTS — [Discord](https://discord.gg/pcmRkVmVZk).** Questions, ideas, and what
 people are building with it. English or Korean; both are read.
@@ -31,9 +31,9 @@ source it came from.
 - **Bug reports.** What you did, what happened, how it can be seen again. There is a form for it.
 - **Questions** about a method, a type, or a limit you ran into.
 - **Ideas**, including ones that say the current design is wrong.
-- **What you built on it.** Open an issue and say what you made; that is how it gets known.
+- **What you built on it.** Open an issue and say what you made.
 
-**Write in English or in Korean.** Both are read.
+**Write in English or in Korean.**
 
 ## Sending code
 
@@ -45,12 +45,12 @@ a comment on it:
 The description is the better place: GitHub has no way to delete a pull request, so a sentence
 there stays put. Either is accepted.
 
-That is the whole agreement process — no signature, no legal name, no address, no form. The
+Nothing else is needed: no signature, legal name, address or form. The
 agreement is [CLA.md](CLA.md); [the Korean explanation](CLA.ko.md)
 says what each clause means, for anyone who would rather read it that way. It is the same agreement
 for every needmoretruth repository, so agreeing once is enough.
 
-The short version of what it does: you keep the copyright in what you wrote, and we get a licence
+You keep the copyright in what you wrote, and we get a licence
 broad enough to keep the whole program under one owner. That matters because different licence
 terms are offered to anyone whose situation Apache-2.0 does not fit, and that offer can only be
 made by whoever holds all of it.
@@ -101,7 +101,7 @@ types say, and what the documentation promises.
 - A change with no way to tell whether it works. New behaviour comes with a test.
 - A new dependency, unless there is no other way. This package has one, on purpose.
 - A rewrite of something that already works, sent without asking first. Say what you want to
-  change in an issue before writing it, and you will not waste an afternoon.
+  change in an issue before writing it.
 
 ## Conduct
 

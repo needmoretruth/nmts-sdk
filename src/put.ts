@@ -20,8 +20,6 @@
 //    signed under one agreement. A library that kept one would be deciding for a caller who never
 //    asked it to.
 
-import { basename } from "node:path";
-
 import {
   addEntry,
   clearItemRecord,
@@ -38,7 +36,7 @@ import {
   type FileUploadStep,
   type PlaintextSource,
   type UploadApi,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
 import { readList } from "./list.ts";
 import { withAccount, withDataKey, type Opened } from "./session.ts";
@@ -297,7 +295,7 @@ export async function putSource(
     //    were sealed with, which on a resume belongs to the call that sealed them.
     const added = await addEntry({
       server: held.server,
-      apiKey: held.apiKey,
+      apiKey: held.bearer,
       code: held.code,
       accountId: held.accountId,
       entry: {
@@ -318,7 +316,7 @@ export async function putSource(
     for (const record of partKeysOf(result.fileKey, result.parts)) clearReservation(record);
     // The displaced file, when this machine is set to overwrite, goes to the trash on the server
     // only after the new one is in the list — until then the caller still had the file they started with.
-    if (added.replaced) await setTrashed(held.server, held.apiKey, added.replaced.id, true);
+    if (added.replaced) await setTrashed(held.server, held.bearer, added.replaced.id, true);
 
     return {
       dryRun: false,
@@ -337,7 +335,27 @@ export async function putSource(
   });
 }
 
-/** A file path's own name, for `put("/tmp/x/report.pdf")`. */
+/**
+ * A file path's own name, for `put("/tmp/x/report.pdf")`.
+ *
+ * ⚠ BOTH SEPARATORS, because a path typed on Windows uses one this package would otherwise carry
+ *   into the account as part of the name. `node:path` is not imported for it: this module is one
+ *   of the ones a browser loads, and a path is the one input a browser never has.
+ */
 export function nameOf(localPath: string): string {
-  return basename(localPath);
+  const cut = Math.max(localPath.lastIndexOf("/"), localPath.lastIndexOf("\\"));
+  return cut < 0 ? localPath : localPath.slice(cut + 1);
 }
+
+/**
+ * What `put()` takes.
+ *
+ * ⛔ THE PATH IS NODE'S AND THE `Blob` IS EVERYBODY'S. A page has no file paths, so the browser
+ *    entry's `PutInput` has no `string` in it and a path there is refused rather than read as a
+ *    name. Bytes and a `Blob` work in both — Node has had `Blob` since 18 — so a program that
+ *    already holds either hands it over the same way whichever side it is running on.
+ */
+export type PutInput = string | { name: string; bytes: Uint8Array } | { name: string; blob: Blob };
+
+/** What the browser entry's `put()` takes: the same, without the path. */
+export type BrowserPutInput = Exclude<PutInput, string>;

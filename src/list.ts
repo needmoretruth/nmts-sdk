@@ -14,7 +14,7 @@ import {
   readFileList,
   type ManifestEntry,
   type PaddingRule,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
 import { withAccount, type Held, type Opened } from "./session.ts";
 
@@ -54,7 +54,7 @@ export interface OpenedList {
 
 /** Read the sealed list and open it. */
 export async function readList(held: Held): Promise<OpenedList> {
-  const list = await readFileList(held.server, held.apiKey, held.code, held.accountId);
+  const list = await readFileList(held.server, held.bearer, held.code, held.accountId);
   return {
     entries: list.manifest?.entries ?? [],
     padding: list.manifest?.settings?.paddingMode === "pow2" ? "pow2" : "padme",

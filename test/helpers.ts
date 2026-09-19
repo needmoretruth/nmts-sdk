@@ -16,6 +16,9 @@ import type { WalletSeams } from "../src/put-wallet.ts";
 
 export { startFakeDrive, withSandbox, entry, folder, KEY } from "../../cli/test/fake-drive.ts";
 export type { FakeDrive } from "../../cli/test/fake-drive.ts";
+// The Platform's business doors, answered by that same server. It rebuilds the signed sentence
+// from the wire, so a client that signed the wrong path, method or body is refused here as well.
+export { platformState, resetPlatform } from "../../cli/test/fake-platform.ts";
 export { generateCode, sealFile, sealFileList, type SealedFile } from "../../cli/test/helpers.ts";
 export { apiThat, protocolThat, isolate } from "../../cli/test/upload-fixture.ts";
 export type { Pushed } from "../../cli/test/upload-fixture.ts";

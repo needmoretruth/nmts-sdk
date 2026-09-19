@@ -33,7 +33,7 @@ import {
   type ChainReader,
   type CoinBalance,
   type Network,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
 import { withAccount, type Held, type Opened } from "./session.ts";
 
@@ -89,7 +89,7 @@ export function requireWalletIndex(value: number): number {
  */
 export async function payingWallet(held: Held): Promise<number> {
   try {
-    const list = await readFileList(held.server, held.apiKey, held.code, held.accountId);
+    const list = await readFileList(held.server, held.bearer, held.code, held.accountId);
     return activeWalletOf(list.manifest?.settings);
   } catch (error) {
     // A refusal this package already worded — no API key, a server that said no — is passed on as
@@ -124,7 +124,7 @@ export async function wallets(opened: Opened, reads: WalletReads = {}): Promise<
   const open = reads.openChain ?? chainReader;
   const history = reads.hasHistory ?? hasHistory;
   return withAccount(opened, async (held) => {
-    const list = await readFileList(held.server, held.apiKey, held.code, held.accountId);
+    const list = await readFileList(held.server, held.bearer, held.code, held.accountId);
     const settings = list.manifest?.settings;
     const active = activeWalletOf(settings);
     const count = walletCountOf(settings);
@@ -172,7 +172,7 @@ export async function setActiveWallet(opened: Opened, index: number): Promise<Ac
   //    reason after having opened it for nothing.
   const wanted = requireWalletIndex(index);
   return withAccount(opened, async (held) => {
-    const before = await readFileList(held.server, held.apiKey, held.code, held.accountId);
+    const before = await readFileList(held.server, held.bearer, held.code, held.accountId);
     // The setting lives IN the list, so an account with no list has nowhere to put it — the same
     // refusal `nmts wallet use` gives, with the same way out.
     if (before.manifest === null) {
@@ -181,7 +181,13 @@ export async function setActiveWallet(opened: Opened, index: number): Promise<Ac
         { exitCode: 4, nextStep: "Upload once with `put()` and set the wallet after." },
       );
     }
-    const result = await applyManyToList(held, () => [], { activeWallet: wanted });
+    // ⚠ Spelled out rather than handed `held` whole: the list editor's field is called `apiKey`,
+    //   and what this account speaks with may be a delegation token — one field, two credentials.
+    const result = await applyManyToList(
+      { server: held.server, apiKey: held.bearer, code: held.code, accountId: held.accountId },
+      () => [],
+      { activeWallet: wanted },
+    );
     return { index: wanted, address: await walletAddress(held.code, wanted), changed: result.changed };
   });
 }

@@ -18,7 +18,7 @@
 //    think is calling". Where to talk is `NmtsOptions`, because the same key is the same account on
 //    any server, and a root carrying an address would be a key that only worked against one.
 
-import { NmtsError } from "@needmoretruth/nmts-cli";
+import { NmtsError } from "@needmoretruth/nmts-cli/portable";
 
 /**
  * Which process holds the key.
@@ -32,10 +32,17 @@ export type RootMode = "device" | "managed";
 /**
  * Who the server is asked to believe is calling.
  *
- * One kind for now. A business acting for a person it has delegation for is `{ kind: "delegation";
- * token: string }`, and it arrives with the Platform API rather than before it.
+ * ⛔ TWO KINDS, AND EVERY VERB TAKES EITHER. An API key belongs to the account it acts for; a
+ *    delegation token is signed by the business that account belongs to, and says how long and how
+ *    far. Which credential opened the door is not a property of what is behind it — a verb that
+ *    worked with one and not the other would be the key-holder law broken one layer along.
+ *
+ * ⚠ WHAT A DELEGATION TOKEN CANNOT REACH IS THE SERVER'S DECISION and is not guessed here. The
+ *   acts that are about the account itself — erasing it, minting credentials, recovery, sharing,
+ *   the support inbox — are refused there, and that refusal arrives as the same `NmtsError` every
+ *   other refusal does. A list kept on this side would be a second copy, going quietly stale.
  */
-export type Identity = { kind: "api-key"; apiKey: string };
+export type Identity = { kind: "api-key"; apiKey: string } | { kind: "delegation"; token: string };
 
 /** Something that holds one account's NMTS key and will lend it for the length of one piece of work. */
 export interface Root {
@@ -44,16 +51,33 @@ export interface Root {
   withCode<T>(use: (code: string) => Promise<T>): Promise<T>;
 }
 
+/**
+ * What makes the server answer: an API key, or a delegation token, and exactly one of them.
+ *
+ * ⛔ NOT BOTH, AND THE TYPE IS WHERE THAT IS SAID. Two credentials in one object is a question
+ *    about which of them a request carried, and a program whose author cannot answer that has made
+ *    a decision about access without noticing.
+ */
+export type ServerCredential =
+  | {
+      /** Made on the account screen. Opens nothing; can be revoked there. */
+      apiKey: string;
+      delegation?: undefined;
+    }
+  | {
+      /** Minted by the business this account belongs to. Good until it runs out; cannot be withdrawn. */
+      delegation: string;
+      apiKey?: undefined;
+    };
+
 /** What the device root takes. Two secrets, because they do two different jobs — see the README. */
-export interface Credentials {
+export type Credentials = {
   /** Opens the files and derives the wallet. Never leaves this process. */
   accountCode: string;
-  /** Makes the server answer. Opens nothing; can be revoked on the account screen. */
-  apiKey: string;
-}
+} & ServerCredential;
 
-/** What the managed root takes: a way to open the sealed code, and the key the server answers to. */
-export interface ManagedCredentials {
+/** What the managed root takes: a way to open the sealed code, and the credential the server answers to. */
+export type ManagedCredentials = {
   /**
    * Opens the account's code out of wherever this business sealed it, and answers it.
    *
@@ -62,8 +86,30 @@ export interface ManagedCredentials {
    * own decision and this package does not reach into it.
    */
   openCode: () => Promise<string>;
-  /** Makes the server answer. Opens nothing; can be revoked on the account screen. */
-  apiKey: string;
+} & ServerCredential;
+
+/**
+ * The identity a pair of credentials names.
+ *
+ * ⛔ EXACTLY ONE, CHECKED AT RUN TIME AS WELL AS IN THE TYPE. The types are gone by the time a
+ *    program written in JavaScript — or one that built this object out of a configuration file —
+ *    reaches here, and "both were given, so one was ignored" is not something to find out from
+ *    which requests got through.
+ */
+export function credentialIdentity(from: ServerCredential): Identity {
+  const hasKey = typeof from.apiKey === "string" && from.apiKey.trim().length > 0;
+  const hasToken = typeof from.delegation === "string" && from.delegation.trim().length > 0;
+  if (hasKey && hasToken) {
+    throw new NmtsError("Both an API key and a delegation token were given; a client speaks with one.", {
+      exitCode: 2,
+      nextStep: "Nothing was sent. Pass `apiKey` for the account's own key, or `delegation` for a token the business minted.",
+    });
+  }
+  // ⚠ An empty one is still the kind it is: the refusal a verb makes should name the credential
+  //   that was asked for, not the one that was not.
+  return from.delegation !== undefined
+    ? { kind: "delegation", token: from.delegation }
+    : { kind: "api-key", apiKey: from.apiKey ?? "" };
 }
 
 const CODE_NEXT_STEP =
@@ -92,10 +138,10 @@ export function requireText(value: unknown, what: string, nextStep: string): str
  * work and a code that is not one fails on the first call, where the caller can act on it.
  */
 export function deviceRoot(credentials: Credentials): Root {
-  const { accountCode, apiKey } = credentials;
+  const { accountCode } = credentials;
   return {
     mode: "device",
-    identity: { kind: "api-key", apiKey },
+    identity: credentialIdentity(credentials),
     async withCode<T>(use: (code: string) => Promise<T>): Promise<T> {
       return use(requireText(accountCode, "account code", CODE_NEXT_STEP));
     },
@@ -111,10 +157,10 @@ export function deviceRoot(credentials: Credentials): Root {
  *    is one `openCode` per call, and the test registry counts exactly that.
  */
 export function managedRoot(source: ManagedCredentials): Root {
-  const { openCode, apiKey } = source;
+  const { openCode } = source;
   return {
     mode: "managed",
-    identity: { kind: "api-key", apiKey },
+    identity: credentialIdentity(source),
     async withCode<T>(use: (code: string) => Promise<T>): Promise<T> {
       let code: string | null = requireText(await openCode(), "account code", OPENED_NOTHING_NEXT_STEP);
       try {

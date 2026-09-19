@@ -13,13 +13,12 @@
 import {
   entryAt,
   fetchFile,
-  fileSink,
   KIND_FILE,
   NmtsError,
   type FetchedFile,
   type PlaintextSink,
   type ReadOptions,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
 import { readList } from "./list.ts";
 import { withAccount, type Held, type Opened } from "./session.ts";
@@ -118,7 +117,7 @@ export async function fetchInto(
   }
   const fetched: FetchedFile = await fetchFile({
     base: held.server,
-    apiKey: held.apiKey,
+    apiKey: held.bearer,
     accountCode: held.code,
     itemId: entry.id,
     size: entry.size,
@@ -150,13 +149,18 @@ export async function getBytes(
   });
 }
 
-/** The file written to `destination`, through a temporary name, visible only once it is proved. */
-export async function getToFile(
+/**
+ * The file delivered to a sink the caller made, rather than held in memory.
+ *
+ * ⛔ THE SINK IS THE PARAMETER. Writing to a real file is Node's, and what makes the promise —
+ *    nothing appears under the name until the whole file is proved — is the sink's, not this
+ *    function's. A page's sink keeps the same contract with whatever it delivers to.
+ */
+export async function getTo(
   opened: Opened,
   path: string,
-  destination: string,
-  force: boolean,
+  sink: PlaintextSink,
   read: ReadOptions | undefined,
 ): Promise<GetResult> {
-  return withAccount(opened, async (held) => fetchInto(held, path, fileSink(destination, { force }), read));
+  return withAccount(opened, async (held) => fetchInto(held, path, sink, read));
 }

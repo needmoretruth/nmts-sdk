@@ -13,9 +13,22 @@ import * as sdk from "../src/index.ts";
 
 const here = join(import.meta.dirname, "..");
 
+/** Every code file under `examples/`, however deep. */
+function recipes(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter((entry) => entry.isFile() && /\.(mjs|js|jsx|ts|tsx)$/.test(entry.name))
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
 test("the package exports one class, and its methods are the ones the README shows", () => {
-  const readme = readFileSync(join(here, "README.md"), "utf8");
-  const shown = new Set([...readme.matchAll(/\bnmts\.(\w+)\(/g)].map((m) => m[1]));
+  // ⛔ THE RECIPES ARE HELD TO THE SAME PROMISE. A file under `examples/` is what a developer
+  //    copies first, so a method it calls that the class lacks is the README failure with a worse
+  //    first impression.
+  const shown = new Set<string>();
+  const sources = [join(here, "README.md"), join(here, "AGENTS.md"), ...recipes(join(here, "examples"))];
+  for (const file of sources) {
+    for (const m of readFileSync(file, "utf8").matchAll(/\bnmts\.(\w+)\(/g)) shown.add(m[1]);
+  }
   assert.ok(shown.size >= 3, "the README shows no calls");
   const proto = Object.getOwnPropertyNames(sdk.Nmts.prototype).filter((n) => n !== "constructor");
   for (const name of shown) assert.ok(proto.includes(name), `README calls nmts.${name}() and the class has no such method`);
@@ -51,11 +64,33 @@ test("the package exports one class, and its methods are the ones the README sho
  *   judged below), `root` and `session` are where the key and the address live, `env` reads the
  *   environment and `product` is four constants.
  */
-const NOT_VERBS = new Set(["index", "nmts", "root", "session", "env", "product"]);
+const NOT_VERBS = new Set([
+  "index",
+  "nmts",
+  "root",
+  "session",
+  "env",
+  "product",
+  // ⛔ `business` IS NOT A VERB ON AN ACCOUNT, so there is no root to walk it through: it is a
+  //    business speaking for ITSELF with its own signing key, which opens no file and holds no
+  //    account code. The axis it does have — which credential a call carries — is walked by every
+  //    verb through the registry's third row, and `business.test.ts` judges the doors themselves.
+  "business",
+  // The browser entry and what it registers. `browser` is the second surface, `host-browser`,
+  // `host-options`, `state-idb` and `state-memory` are the host behind it, and `node-seams` is the
+  // register the Node entry fills. None of them is a verb, and each is judged by its own test.
+  "browser",
+  "host-browser",
+  "host-options",
+  "node-seams",
+  "state-idb",
+  "state-memory",
+]);
 
 test("every verb file has a test that walks it through every root", () => {
   const verbs = readdirSync(join(here, "src"))
-    .filter((f) => f.endsWith(".ts"))
+    // ⚠ A `.d.ts` is declarations, not a module: there is nothing in it to walk through a root.
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))
     .map((f) => f.slice(0, -".ts".length))
     .filter((n) => !NOT_VERBS.has(n));
   assert.ok(verbs.length >= 4, `only ${verbs.length} verb files were found, so nothing was judged`);

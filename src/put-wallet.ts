@@ -23,7 +23,7 @@ import {
   type PlaintextSource,
   type WalletPutReview,
   type WalletPutSeams,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
 import { readList } from "./list.ts";
 import {
@@ -75,7 +75,7 @@ export async function putSourceWithWallet(
     const outcome = await walletPut(
       {
         code: held.code,
-        apiKey: held.apiKey,
+        apiKey: held.bearer,
         server: held.server,
         network: held.network,
         accountId: held.accountId,

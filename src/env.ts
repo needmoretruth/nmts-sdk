@@ -1,5 +1,10 @@
 // The one place this package reads the environment — and only when `Nmts.fromEnv()` asks.
 //
+// ⛔ NODE'S, AND REACHED THROUGH THE SEAM RATHER THAN IMPORTED. A `*_FILE` variable names a file,
+//    which is the one thing a page cannot read, so this module is imported by the Node entry point
+//    alone and handed to `node-seams.ts` there. `nmts.ts` asks the seam, which is what keeps
+//    Node's filesystem out of a bundle built from `/browser`.
+//
 // ⛔ THE SAME VARIABLE NAMES AS THE COMMAND-LINE TOOL, in the same order of preference, so a
 //    machine set up for `nmts` is set up for this package, and a container recipe written for one
 //    works for the other. A file named by `*_FILE` wins over a value in the variable itself,

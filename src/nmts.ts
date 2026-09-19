@@ -19,27 +19,41 @@
 import {
   createBlobProtocol,
   createUploadApi,
-  fileSource,
-  measureLocal,
+  host,
+  newAccountCode,
+  NmtsError,
   readCurrentEpoch,
+  registrationProofOf,
   walletAddress,
   type Network,
+  type PlaintextSource,
   type ReadOptions,
-} from "@needmoretruth/nmts-cli";
+} from "@needmoretruth/nmts-cli/portable";
 
-import { credentialsFromEnvironment } from "./env.ts";
-import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getToFile, type GetResult } from "./get.ts";
+import {
+  businessClient,
+  registerWithDelegation,
+  type Business,
+  type BusinessCredentials,
+  type EmbeddedRegistration,
+  type RegisteredUser,
+} from "./business.ts";
+import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getTo, type GetResult } from "./get.ts";
+import { useHostOptions } from "./host-options.ts";
 import { listEntries, type Entry } from "./list.ts";
+import { nodeSeams } from "./node-seams.ts";
 import {
   bytesSource,
   nameOf,
   putSource,
+  type PutInput,
   type PutOptions,
   type PutResult,
   type PutReview,
   type UploadRail,
 } from "./put.ts";
 import { putSourceWithWallet } from "./put-wallet.ts";
+import { blobSource } from "./source-blob.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
 import { openAccount, withAccount, type Opened, type ServerOptions } from "./session.ts";
 import {
@@ -57,6 +71,26 @@ export interface NmtsOptions extends ServerOptions {
    * development stack, or an aggregator you run yourself.
    */
   aggregators?: readonly string[] | undefined;
+  /**
+   * The storage network's relay this client writes through, instead of the network's own.
+   *
+   * ⚠ ONE host, not a list: unlike reads there is nothing to fail over to.
+   */
+  relay?: string | undefined;
+  /** The Sui JSON-RPC endpoint this client asks, instead of the network's own. */
+  suiRpc?: string | undefined;
+  /**
+   * Told each progress line the work produces. Absent, the command-line package's Node host writes
+   * them to stderr and a page says nothing.
+   */
+  onProgress?: ((line: string) => void) | undefined;
+  /**
+   * BROWSER ENTRY ONLY: where the engine's WebAssembly is, when a bundler put it somewhere the
+   * module cannot work out for itself. On Node it is refused rather than ignored — the engine
+   * there comes out of the installed package, so a caller who set this did not get what they asked
+   * for.
+   */
+  wasmUrl?: string | undefined;
 }
 
 /**
@@ -67,7 +101,15 @@ export interface NmtsOptions extends ServerOptions {
  *    these three, and the code goes to the root and nowhere else.
  */
 function optionsOf(from: NmtsOptions): NmtsOptions {
-  return { server: from.server, network: from.network, aggregators: from.aggregators };
+  return {
+    server: from.server,
+    network: from.network,
+    aggregators: from.aggregators,
+    relay: from.relay,
+    suiRpc: from.suiRpc,
+    onProgress: from.onProgress,
+    wasmUrl: from.wasmUrl,
+  };
 }
 
 export interface GetOptions {
@@ -92,6 +134,28 @@ export interface AccountInfo {
   network: Network;
 }
 
+/**
+ * The bytes an upload will read, and the name they came with.
+ *
+ * ⛔ A PATH IS READ ONLY WHERE THERE IS A DISK. The modules that open one live behind the Node
+ *    entry point, so this reaches for them when it is handed a path and refuses when the runtime
+ *    that registered the host has no files — which is the honest answer in a page, and a sentence
+ *    rather than a crash three calls further in.
+ */
+function sourceOf(file: PutInput | Uint8Array): { source: PlaintextSource; name: string } {
+  if (typeof file === "string") {
+    const seams = nodeSeams(
+      "PUT_PATH_UNAVAILABLE",
+      "Nothing was sent. Hand `put` the bytes — `{ name, bytes }` — or a `Blob` — " +
+        "`{ name, blob }` — which is what a file picker, a drag or a `fetch` already gives you.",
+    );
+    return { source: seams.source(file), name: nameOf(file) };
+  }
+  if (file instanceof Uint8Array) return { source: bytesSource(file), name: "" };
+  if ("blob" in file) return { source: blobSource(file.blob, file.name), name: file.name };
+  return { source: bytesSource(file.bytes), name: file.name };
+}
+
 export class Nmts {
   readonly #root: Root;
   readonly #options: NmtsOptions;
@@ -100,6 +164,27 @@ export class Nmts {
   constructor(root: Root, options: NmtsOptions = {}) {
     this.#root = root;
     this.#options = { ...options };
+    // ⛔ AN OPTION THAT WOULD BE IGNORED IS A REFUSAL, not a shrug. The Node host finds the engine
+    //    in the installed package, so a caller who named a URL for it was writing for the browser
+    //    entry and is running on the other one.
+    if (options.wasmUrl !== undefined && host().name !== "browser") {
+      throw new NmtsError("OPTION_NODE_IGNORED: `wasmUrl` only applies to the browser entry point.", {
+        exitCode: 2,
+        nextStep:
+          "Nothing was read or written. Import `@needmoretruth/nmts-sdk/browser` to use it, or drop " +
+          "it — on Node the engine comes out of the installed command-line package.",
+      });
+    }
+    // ⛔ THE HOST IS THE RUNTIME'S AND THIS IS THE ONE SEAM TO IT. A host was registered when the
+    //    entry point was imported, long before any client existed; these are the things only a
+    //    caller knows, and the host reads them when it is asked to do the thing that needs them.
+    useHostOptions({
+      relay: options.relay,
+      suiRpc: options.suiRpc,
+      aggregators: options.aggregators,
+      onProgress: options.onProgress,
+      wasmUrl: options.wasmUrl,
+    });
   }
 
   /** The key is in THIS process: a browser, an app, a game client, your own program. */
@@ -118,6 +203,63 @@ export class Nmts {
   }
 
   /**
+   * A BUSINESS's own client: its Platform doors, and the tokens it mints for its users.
+   *
+   * ⛔ IT REFUSES BY NAME IN A PAGE rather than being missing from the browser entry — the three
+   *    calls that need files already do that, so a program moved into a page fails with a sentence
+   *    instead of an import that is suddenly not there. And what is wrong in a page is not the
+   *    runtime: a business's signing key in a page is that key handed to everyone who opens it. A
+   *    page holds a delegation token; the key stays on the business's own server.
+   *
+   * ⚠ OF THE OPTIONS, ONLY `server` IS READ, and the rest are taken so that one options object can
+   *   be handed to both clients. No Platform door touches a chain, the storage network or the
+   *   engine, so there is nothing here for the others to mean.
+   */
+  static business(credentials: BusinessCredentials & NmtsOptions): Business {
+    if (host().name === "browser") {
+      throw new NmtsError("BUSINESS_IN_A_PAGE: a business's signing key does not belong in a browser.", {
+        exitCode: 2,
+        nextStep:
+          "Nothing was sent. Sign on your own server and hand the page a delegation token — " +
+          "`Nmts.device({ accountCode, delegation })` is what a page uses.",
+      });
+    }
+    return businessClient({ accountId: credentials.accountId, privateKey: credentials.privateKey, server: credentials.server });
+  }
+
+  /**
+   * A brand-new NMTS key, made in this process by the engine.
+   *
+   * ⛔ Nothing is sent and nothing is stored: the caller is the only holder. In the embedded form
+   *    this runs on the person's device, so the business never sees the key.
+   */
+  static newAccountCode(): Promise<string> {
+    return newAccountCode();
+  }
+
+  /**
+   * The public id of the account an NMTS key opens — what a device tells its business so that the
+   * business can sign a delegation token for it. Not a secret, and derived without any request.
+   */
+  static async accountIdOf(accountCode: string): Promise<string> {
+    return (await registrationProofOf(accountCode)).accountId;
+  }
+
+  /**
+   * The embedded form: a device holding a token with the `register` scope makes its own account.
+   *
+   * The NMTS key stays where it was made — this sends only the pair every account door has always
+   * taken — so the business that signed the token never sees it.
+   */
+  static registerWithDelegation(options: EmbeddedRegistration & NmtsOptions): Promise<RegisteredUser> {
+    return registerWithDelegation({
+      accountCode: options.accountCode,
+      delegation: options.delegation,
+      server: options.server,
+    });
+  }
+
+  /**
    * A device client whose credentials come from the environment, the way the command-line tool
    * finds them.
    *
@@ -126,7 +268,10 @@ export class Nmts {
    * either way. Nothing is read until this is called.
    */
   static fromEnv(options: NmtsOptions = {}): Nmts {
-    const found = credentialsFromEnvironment();
+    const found = nodeSeams(
+      "FROM_ENV_UNAVAILABLE",
+      "There is no environment to read. Pass `accountCode` and `apiKey` to Nmts.device().",
+    ).environment();
     return Nmts.device({ ...options, ...found.credentials });
   }
 
@@ -204,12 +349,12 @@ export class Nmts {
    * A path names a file on this machine; bytes need a `name`. A name already in use is numbered,
    * `report (2).pdf`, unless the machine's `nmts on-collision` setting says overwrite.
    */
-  async put(file: string | Uint8Array, options: PutOptions & { dryRun: true }): Promise<PutReview>;
-  async put(file: string | Uint8Array, options?: PutOptions): Promise<PutResult>;
-  async put(file: string | Uint8Array, options: PutOptions = {}): Promise<PutResult | PutReview> {
+  async put(file: PutInput | Uint8Array, options: PutOptions & { dryRun: true }): Promise<PutReview>;
+  async put(file: PutInput | Uint8Array, options?: PutOptions): Promise<PutResult>;
+  async put(file: PutInput | Uint8Array, options: PutOptions = {}): Promise<PutResult | PutReview> {
     const opened = this.#account();
-    const source = typeof file === "string" ? fileSource(file, measureLocal(file)) : bytesSource(file);
-    const name = options.name ?? (typeof file === "string" ? nameOf(file) : "");
+    const { source, name: own } = sourceOf(file);
+    const name = options.name ?? own;
     // ⛔ WHICH MONEY IS DECIDED BEFORE ANYTHING IS READ, as the command-line tool decides it. The
     //    credit rail below cannot price in WAL or sign a transaction, and it must not learn.
     if (options.pay === "wallet") return putSourceWithWallet(opened, source, name, options);
@@ -220,7 +365,7 @@ export class Nmts {
   async #rail(opened: Opened, sealedBytes: number, options: PutOptions): Promise<UploadRail> {
     const protocol = createBlobProtocol(opened.network, sealedBytes, options.onProgress);
     return {
-      api: createUploadApi(opened.server, opened.apiKey),
+      api: createUploadApi(opened.server, opened.bearer),
       protocol,
       relayUrl: protocol.relayUrl,
       currentEpoch: await readCurrentEpoch(opened.network),
@@ -237,6 +382,10 @@ export class Nmts {
    * ceiling. Refuses to overwrite unless `force` says so.
    */
   async getTo(path: string, destination: string, options: GetToOptions = {}): Promise<GetResult> {
-    return getToFile(this.#account(), path, destination, options.force === true, this.#read());
+    const sink = nodeSeams(
+      "GET_TO_UNAVAILABLE",
+      "Nothing was fetched. Use get(path), which answers the bytes — a page writes them out itself.",
+    ).sink(destination, { force: options.force === true });
+    return getTo(this.#account(), path, sink, this.#read());
   }
 }

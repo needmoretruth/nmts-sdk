@@ -3,11 +3,11 @@
 Put, get and list files in an [NMTS](https://nmts.me) account from your own program — end-to-end
 encrypted storage on the Walrus network, with the keys on your machine.
 
-> **If you are an AI agent, read [AGENTS.md](AGENTS.md) instead.** It says the same things in the
-> order a program needs them.
+> **If you are an AI agent, read [AGENTS.md](AGENTS.md) instead.** It has the cost of each
+> method and the refusal codes.
 >
-> **Status: early.** The interface may still change before 1.0. The types are the current truth
-> about what exists.
+> **Status: early.** The interface may still change before 1.0. A method added after this file
+> was written is in `dist/index.d.ts`.
 
 ## Quickstart
 
@@ -28,7 +28,7 @@ Node 22 or newer. Nothing is compiled at install time: the encryption engine is 
 module carried by the package this one is built on.
 
 Two things have to exist before the first call, and both are made once, by a person, at
-[nmts.me](https://nmts.me): an **account** (its code is printed once and never again) and an
+[nmts.me](https://nmts.me): an **account** (its NMTS key is printed once and never again) and an
 **API key** for it (on the account screen). Nothing here can make either — see
 [What only a person can do](#what-only-a-person-can-do).
 
@@ -36,14 +36,13 @@ Two things have to exist before the first call, and both are made once, by a per
 
 Storage where **the encryption happens in your process and the keys never leave it.** The server
 receives sealed bytes it cannot open. File contents, names and folders all live inside a sealed
-list that only the account code opens — which is why `list()` needs the code and not just the key.
+list that only the NMTS key opens — which is why `list()` needs it and not just the API key.
 
-The bytes live on **Walrus**, a public storage network, paid for on the **Sui** chain. Three
-things to know:
+The bytes live on **Walrus**, a public storage network, paid for on the **Sui** chain.
 
 - **Storage is bought for a period, not forever.** A file has a lease. It can be extended, and
   NMTS warns before one runs out.
-- **There is no password reset.** The account code *is* the account. It cannot be recovered or
+- **There is no password reset.** The NMTS key *is* the account. It cannot be recovered or
   changed while keeping the files.
 - **NMTS charges nothing.** Storage is bought from the Walrus network; nothing is paid to NMTS.
   An upload through this package spends **credits** — storage a donation pool has already paid the
@@ -56,34 +55,48 @@ web app are not published.
 
 ## Who holds the key
 
-An account is its **account code**: the file keys, the wallet and the public code are all derived
-from it. So there is one question to answer, and you answer it once, where you make the client —
-which process holds that code.
+An account is its **NMTS key** (the `accountCode` in this library's calls): the file keys, the wallet and the public code are all derived
+from it. Where you make the client, you choose which process holds that key.
 
-| The code is held by | The client you make | Who can read the files |
+| The NMTS key is held by | The client you make | Who can read the files |
 |---|---|---|
 | the person, on their own machine | `Nmts.device({ accountCode, apiKey })` | only them — not you, not NMTS |
 | your service, sealed in a store of your own | `Nmts.managed({ openCode, apiKey })` | your service, and whoever it lets in — not NMTS |
+| the person, in a page of yours | `Nmts.device({ accountCode, apiKey })` from `@needmoretruth/nmts-sdk/browser` | only them — but the page's code is yours, so they are as safe as their trust in you |
 
-Every method works the same on both, and this package has no method that works on one and not the
-other. A managed client calls `openCode()` once per call on the account and keeps nothing between
-calls, so your store stays the one place the code rests; how you seal it — a cloud key service, a
+Every method works the same on a device client and a managed client. A managed client calls `openCode()` once per call on the account and keeps nothing between
+calls, so your store stays the one place the NMTS key rests; how you seal it — a cloud key service, a
 master key, a hardware module — is yours to decide and nothing here reaches into it.
 
 ```js
 const nmts = Nmts.managed({ openCode: () => myVault.open(customerId), apiKey: process.env.NMTS_API_KEY });
 ```
 
+The browser row is the same client as the first: the NMTS key is typed into your page and stays
+in the tab's memory, and NMTS never sees it. The difference from the managed row is where the key
+passes through, not whether you *could* read the files — a page you serve can do what its code
+says. Tell your users that your page's code can read their files.
+
+## Recipes
+
+Runnable files in [`examples/`](examples/), one per shape:
+
+| Shape | File | What it shows |
+|---|---|---|
+| Node, device | `quickstart.mjs` | put, get and list from a shell with the two credentials in the environment |
+| Browser, device | `next-embedded/UploadButton.jsx` | a Next.js client component: a file picker, `put({ name, blob })`, the key never leaves the page |
+| Node, managed | `node-managed/server.mjs` | a service holding its customers' keys in a store of its own, `openCode` once per call |
+
 ## The two credentials
 
 | | What it does | Where it comes from |
 |---|---|---|
-| **account code** | Opens the files. Derives the wallet. Never leaves the process that holds it. | Printed once when the account is made |
+| **NMTS key** | Opens the files. Derives the wallet. Never leaves the process that holds it. | Printed once when the account is made |
 | **API key** | Makes the server answer. Opens nothing. Can be revoked; expires on its own. | The account screen at nmts.me |
 
-They are two on purpose. The key is the cheap, revocable thing you hand to a program; the code is
-the account. Keep them apart: a leaked key is revoked in one click and opens no file, a leaked code
-is the account, for good.
+The API key is the cheap, revocable thing you hand to a program; the NMTS key is the account. Keep
+them apart: a leaked API key is revoked in one click and opens no file, a leaked NMTS key is the
+account, for good.
 
 ### `Nmts.fromEnv()`
 
@@ -92,8 +105,8 @@ the same order:
 
 | Variable | Holds | |
 |---|---|---|
-| `NMTS_ACCOUNT_CODE_FILE` | a **path** to a file holding the code | preferred |
-| `NMTS_ACCOUNT_CODE` | the code itself | |
+| `NMTS_ACCOUNT_CODE_FILE` | a **path** to a file holding the NMTS key | preferred |
+| `NMTS_ACCOUNT_CODE` | the NMTS key itself | |
 | `NMTS_API_KEY_FILE` | a **path** to a file holding the key | preferred |
 | `NMTS_API_KEY` | the key itself | |
 | `NMTS_SERVER`, `NMTS_NETWORK` | another server; `mainnet` or `testnet` | read by every call |
@@ -101,7 +114,7 @@ the same order:
 A variable holding a **path** shows anyone who can read the environment a filename; a variable
 holding the **value** shows them the value (`docker inspect` prints the whole environment, and so
 do most CI logs). That is why the file form is preferred and why the command-line tool stops once
-for an agreement before reading the code from `NMTS_ACCOUNT_CODE`. This package does not stop —
+for an agreement before reading the NMTS key from `NMTS_ACCOUNT_CODE`. This package does not stop —
 a library has nobody to ask — so calling `fromEnv()` is that agreement.
 
 ```js
@@ -110,7 +123,7 @@ const nmts = Nmts.fromEnv();
 
 ## What `put()` costs
 
-`put()` is the one method that spends, and there are two things it can spend.
+`put()` is the one method that spends.
 
 **Credits, by default** — **one credit per started MiB of sealed bytes**, for the storage period
 the account buys uploads for. Credits do not come back.
@@ -136,7 +149,7 @@ machine before the money moves (in the same config directory the command-line to
 
 ## Many wallets from one key
 
-The account code derives a wallet at every number from 0 upwards, and each is a real wallet with an
+The NMTS key derives a wallet at every number from 0 upwards, and each is a real wallet with an
 address of its own. **One of them pays**: `setActiveWallet(n)` says which, and that number rides
 inside the account's sealed file list, so the browser, the command-line tool and this package all
 pay from the same address afterwards.
@@ -150,10 +163,12 @@ creates or deletes a wallet, because every wallet a key can derive already exist
 ## Methods
 
 ```ts
-Nmts.device({ accountCode, apiKey, server?, network?, aggregators? })   // the code is in this process
-Nmts.managed({ openCode, apiKey, server?, network?, aggregators? })     // the code is in your store
-Nmts.fromEnv({ server?, network?, aggregators? })                       // device, from the environment
-new Nmts(root, { server?, network?, aggregators? })                     // a root you built yourself
+Nmts.device({ accountCode, apiKey, ...options })   // the NMTS key is in this process
+Nmts.managed({ openCode, apiKey, ...options })     // the NMTS key is in your store
+Nmts.fromEnv(options)                              // device, from the environment — Node only
+new Nmts(root, options)                            // a root you built yourself
+
+// options: { server?, network?, aggregators?, relay?, suiRpc?, onProgress?, wasmUrl? }
 
 await nmts.account()          // { accountId, server, network } — offline
 await nmts.walletAddress()    // the Sui address of the wallet this account pays from
@@ -163,8 +178,18 @@ await nmts.setActiveWallet(2) // which of this key's wallets pays, from now on, 
 await nmts.list()             // Entry[]: { id, path, kind, size, createdAt, updatedAt }, trash left out
 await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })
 await nmts.get(path, { maxBytes? })                 // Uint8Array; 256 MiB ceiling unless raised
-await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling, will not overwrite
+await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
+
+blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker, a drag or a fetch
 ```
+
+- **`put()` takes** a path (`"./report.pdf"`, Node only), bytes (`{ name, bytes }`), or a `Blob`
+  (`{ name, blob }`). A bare `Uint8Array` works too, with `name` in the options.
+- **In a browser, import `@needmoretruth/nmts-sdk/browser`.** It exports the same names and the
+  same class; what it leaves out is the three things a page has no files for — a path in `put()`,
+  `getTo()` and `Nmts.fromEnv()` — and each of those refuses by name rather than failing deeper.
+  The account's key stays in the page, the sealed file list is kept in IndexedDB, and `wasmUrl`
+  says where the engine's WebAssembly is when a bundler has moved it.
 
 - **Paths** are as `list()` prints them: `photos/2026/cat.jpg`. `to: "photos/2026"` puts a file in
   that folder, which must already exist (make folders in the browser or with `nmts mkdir`).
@@ -195,9 +220,56 @@ code. A refusal is not a transient error and must not be retried in a loop.
 | Pass the check that says a person is here | a person | nmts.me, one short code | every four weeks, and only for making further accounts, credits and sharing |
 | Get credits into the account | a person | nmts.me — the free trial | once, then as they run out |
 
-## Limits, honestly
+## Accounts for your own users (NMTS Platform)
 
-- **Organisations may use NMTS through a person who holds the account code, from terms version 13.**
+A business registers once, in a browser: **Settings › Developer › Platform** at nmts.me, with the
+public half of a key pair made by `nmts platform keygen`. After that its server opens NMTS accounts
+for the users of its own product — they never visit nmts.me — up to a daily limit that `info()`
+reports. [Terms 3.7](https://nmts.me/terms) applies: before you open an account for a person you
+show them the NMTS Privacy Policy and obtain the consent its section 5.6 describes, and your
+product is not directed to children.
+
+```js
+import { Nmts } from "@needmoretruth/nmts-sdk";
+
+// On your server. The private key signs every request and never leaves this process.
+const business = Nmts.business({ accountId, privateKey });
+
+// Managed — you hold the user's NMTS key. It comes back once; seal it in your own store.
+const { accountId: user, accountCode } = await business.registerUser();
+
+// Embedded — the user's device holds the key. The device makes it and tells you only its id:
+//   const accountCode = await Nmts.newAccountCode();
+//   const user = await Nmts.accountIdOf(accountCode);
+const token = await business.delegate({
+  user,
+  scope: ["register", "files_read", "files_write"],
+  ttlSecs: 3600,
+});
+// ...and the device opens its own account and works with the token in place of an API key:
+//   await Nmts.registerWithDelegation({ accountCode, delegation: token });
+//   const nmts = Nmts.device({ accountCode, delegation: token });
+```
+
+| Call | Where it runs | What it does |
+|---|---|---|
+| `Nmts.business({ accountId, privateKey })` | your server — it refuses in a page (`BUSINESS_IN_A_PAGE`) | the client below; nothing is sent until a method is called |
+| `business.info()` | your server | the registered public key, the name, accounts opened today and the daily limit |
+| `business.registerUser()` | your server | opens an account and returns its new NMTS key, once |
+| `business.registerUser({ accountCode })` | your server | opens the account of a code you already hold |
+| `business.delegate({ user, scope, ttlSecs })` | your server | signs a delegation token for one of your users; nothing is sent. `ttlSecs` is at most 30 days |
+| `business.rotateKey(newPrivateKey)` | your server | replaces the registered key; every token the old key signed stops working at once |
+| `Nmts.newAccountCode()` · `Nmts.accountIdOf(code)` | the device | a new NMTS key, and its public id; nothing is sent |
+| `Nmts.registerWithDelegation({ accountCode, delegation })` | the device | opens the device's own account with a token that carries `register` |
+
+Scopes are `files_read`, `files_write`, `storage_spend` and `register`. A delegation token takes the
+place of `apiKey` in `Nmts.device()` and `Nmts.managed()`, and every method works with it. It
+cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
+those with `DELEGATION_SCOPE`.
+
+## Limits
+
+- **Organisations may use NMTS through a person who holds the NMTS key, from terms version 13.**
   Until that version is in force, the terms offer the service to individuals for personal use. Read
   the [terms](https://nmts.me/terms) before building a product on this.
 - **Credits are not for resale.** They cannot be bought, sold, transferred or exchanged for anything.
@@ -234,8 +306,7 @@ for the notices and nothing more. We would still like to know. Write to **nmts@n
 
 ## Licence
 
-Apache-2.0 — the full text is in [LICENSE](LICENSE). Build on it, ship it, sell what you build
-with it. If you need different terms, write to **nmts@nmts.me** and say why — see
+Apache-2.0 — the full text is in [LICENSE](LICENSE). If you need different terms, write to **nmts@nmts.me** and say why — see
 [LICENSING.md](LICENSING.md).
 
 Copyright © 2026 needmoretruth.
