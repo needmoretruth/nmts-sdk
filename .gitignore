@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.tsbuildinfo
 *.tgz
+package-lock.json
