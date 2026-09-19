@@ -4,6 +4,11 @@
 //    it; the account code is what opens it, which is why `list()` needs the code and not just the
 //    key. What comes back is every live entry with its full path — the trash is left out, the same
 //    way `nmts ls` leaves it out unless asked.
+//
+// ⛔ AND "IN THE TRASH" IS INHERITED, NOT STAMPED. Trashing a folder marks the folder alone, so a
+//    file under it is in the trash without carrying an instant of its own — which is why
+//    `trashedAt` below is read with the walk from the shared module rather than off the entry.
+//    Reading `deletedAt` and nothing else would answer "not in the trash" for most of the trash.
 
 import {
   activeWalletOf,
@@ -12,6 +17,7 @@ import {
   isLive,
   KIND_FOLDER,
   readFileList,
+  trashedAt,
   type ManifestEntry,
   type PaddingRule,
 } from "@needmoretruth/nmts-cli/portable";
@@ -31,6 +37,23 @@ export interface Entry {
   createdAt: string;
   /** ISO 8601, UTC. */
   updatedAt: string;
+  /**
+   * When this went to the trash — ISO 8601, UTC. Absent unless it is in the trash, which is why
+   * it is the field to read rather than a flag: a path is in the trash exactly when it has one.
+   *
+   * ⚠ For something inside a trashed folder it is the FOLDER's instant, because that is when the
+   *   thirty days started for it. Restoring the folder brings it back with the folder.
+   */
+  trashedAt?: string;
+}
+
+/** What `list()` takes. */
+export interface ListOptions {
+  /**
+   * Include what is in the trash, each entry carrying `trashedAt`. Off by default, so a program
+   * that asks for the account's files is never handed something already on its way out.
+   */
+  trash?: boolean | undefined;
 }
 
 /** The opened list: its entries, and the settings an upload needs from it. */
@@ -62,22 +85,34 @@ export async function readList(held: Held): Promise<OpenedList> {
   };
 }
 
-/** Every live entry, as a path, sorted so a folder comes before what is in it. */
-export function toEntries(entries: readonly ManifestEntry[]): Entry[] {
+/**
+ * Every entry as a path, sorted so a folder comes before what is in it.
+ *
+ * ⚠ `trash` WIDENS WHAT COMES BACK; it does not narrow it to the trash. A program organising an
+ *   account wants one list with the state of everything in it, and asking twice to get both halves
+ *   would be two reads of a list that can move in between.
+ */
+export function toEntries(entries: readonly ManifestEntry[], options: ListOptions = {}): Entry[] {
   const index = buildIndex(entries);
-  return entries
-    .filter((e) => isLive(index, e))
-    .map((e) => ({
-      id: e.id,
-      path: fullPathOf(index, e),
-      kind: e.kind === KIND_FOLDER ? ("folder" as const) : ("file" as const),
-      size: e.size,
-      createdAt: new Date(e.createdAt).toISOString(),
-      updatedAt: new Date(e.updatedAt).toISOString(),
-    }))
+  const wanted = options.trash === true ? entries : entries.filter((e) => isLive(index, e));
+  return wanted
+    .map((e) => {
+      const gone = trashedAt(index, e);
+      return {
+        id: e.id,
+        path: fullPathOf(index, e),
+        kind: e.kind === KIND_FOLDER ? ("folder" as const) : ("file" as const),
+        size: e.size,
+        createdAt: new Date(e.createdAt).toISOString(),
+        updatedAt: new Date(e.updatedAt).toISOString(),
+        // ⚠ Absent rather than null for something that is not in the trash: the field's presence is
+        //   the answer, and `exactOptionalPropertyTypes` keeps the two from being confused.
+        ...(gone === null ? {} : { trashedAt: new Date(gone).toISOString() }),
+      };
+    })
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
-export async function listEntries(opened: Opened): Promise<Entry[]> {
-  return withAccount(opened, async (held) => toEntries((await readList(held)).entries));
+export async function listEntries(opened: Opened, options: ListOptions = {}): Promise<Entry[]> {
+  return withAccount(opened, async (held) => toEntries((await readList(held)).entries, options));
 }

@@ -176,12 +176,28 @@ await nmts.walletAddress({ index: 2 })   // the address of a wallet you name —
 await nmts.wallets()          // WalletInfo[]: { index, address, active } — asks the chain
 await nmts.setActiveWallet(2) // which of this key's wallets pays, from now on, on this account
 await nmts.list()             // Entry[]: { id, path, kind, size, createdAt, updatedAt }, trash left out
+await nmts.list({ trash: true })   // the same, with what is in the trash; those entries carry trashedAt
+await nmts.mkdir("photos/2026")            // { path, created } — makes missing folders above it too
+await nmts.move(["a.pdf", "b.pdf"], "archive")   // { moved: [{ from, to }] } — "/" is the top
+await nmts.rename("archive/a.pdf", "first.pdf")  // { from, to }
+await nmts.remove("archive/b.pdf")         // { removed } — to the trash, restorable for 30 days
+await nmts.restore("archive/b.pdf")        // { restored }
 await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })
 await nmts.get(path, { maxBytes? })                 // Uint8Array; 256 MiB ceiling unless raised
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
 
 blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker, a drag or a fetch
 ```
+
+- **`mkdir`, `move`, `rename`, `remove` and `restore` spend nothing.** With a delegation token
+  they need the `files_write` scope. `move`, `remove` and `restore` take one path or an array.
+- **A name already in use refuses a move, a rename or a restore** with `code: "NAME_TAKEN"`; nothing
+  is numbered and nothing is replaced. The other codes are `NOT_FOUND` (nothing at that path, or the
+  path names two things), `BAD_NAME` (empty, or a `/` in a name), `NOT_IN_TRASH` and `INTO_ITSELF`
+  (a folder moved inside itself).
+- **`remove()` is the trash, not erasure.** A folder takes everything under it, and a removed file
+  keeps its storage. Erasing a file for good is the command-line tool's `nmts erase`, which a person
+  confirms by typing a sentence; no call in this package does it.
 
 - **`put()` takes** a path (`"./report.pdf"`, Node only), bytes (`{ name, bytes }`), or a `Blob`
   (`{ name, blob }`). A bare `Uint8Array` works too, with `name` in the options.
@@ -192,7 +208,7 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
   says where the engine's WebAssembly is when a bundler has moved it.
 
 - **Paths** are as `list()` prints them: `photos/2026/cat.jpg`. `to: "photos/2026"` puts a file in
-  that folder, which must already exist (make folders in the browser or with `nmts mkdir`).
+  that folder, which must already exist (`mkdir()` makes it).
 - **A name already in use** is numbered — `report (2).pdf` — rather than replacing what is there.
   NMTS keeps no previous versions, so replacing would be permanent loss. The command-line tool's
   `nmts on-collision` setting on this machine can change that to overwrite (the old file goes to
@@ -269,9 +285,9 @@ those with `DELEGATION_SCOPE`.
 
 ## Limits
 
-- **Organisations may use NMTS through a person who holds the NMTS key, from terms version 13.**
-  Until that version is in force, the terms offer the service to individuals for personal use. Read
-  the [terms](https://nmts.me/terms) before building a product on this.
+- **A business may build its own product on NMTS.** [Terms 3.7](https://nmts.me/terms) covers it:
+  the business registers its account, opens accounts for the people who use its product, and
+  answers to NMTS for what its product does in them. Read that section before you ship.
 - **Credits are not for resale.** They cannot be bought, sold, transferred or exchanged for anything.
   A product built on NMTS pays for its own storage with `pay: "wallet"` — your coins, on the Sui
   chain, with NMTS never in the money path.
@@ -282,10 +298,10 @@ those with `DELEGATION_SCOPE`.
   it. The ceiling is 16 MiB sealed — about 60,000 files. Past that, use more accounts.
 - **Rate and spend ceilings** exist on the server: one account may spend 4,096 credits (4 GiB) a
   day, and a person must pass the human check every four weeks for the things it gates.
-- **Sharing, folders, renaming, the trash, extension and the recovery list** are not in this
-  package yet. The [command-line tool](https://github.com/needmoretruth/nmts-cli) has them all, and
-  this package is built on its library surface (`@needmoretruth/nmts-cli`), so they can be reached
-  from there today.
+- **Sharing, extension, the recovery list and erasing for good** are not in this package yet. The
+  [command-line tool](https://github.com/needmoretruth/nmts-cli) has them all, and this package is
+  built on its library surface (`@needmoretruth/nmts-cli`), so they can be reached from there today.
+
 
 ## Building from source
 

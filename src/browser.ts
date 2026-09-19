@@ -52,7 +52,16 @@ export type {
   RegisteredUser,
   ScopeName,
 } from "./business.ts";
-export type { Entry } from "./list.ts";
+export type { Entry, ListOptions } from "./list.ts";
+// Folders, moving, renaming and the trash: what the five verbs answer.
+export type {
+  MkdirResult,
+  Moved,
+  MoveResult,
+  RemoveResult,
+  RenameResult,
+  RestoreResult,
+} from "./organise.ts";
 export type { ActiveWallet, WalletInfo } from "./wallets.ts";
 export type {
   CreditsPut,

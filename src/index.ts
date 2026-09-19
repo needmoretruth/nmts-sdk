@@ -1,7 +1,8 @@
 // `@needmoretruth/nmts-sdk` — what `import { Nmts } from "@needmoretruth/nmts-sdk"` hands you.
 //
-// One class, three verbs, and the two answers to "who holds the key". Everything else is a type, or
-// the error every failure arrives in.
+// One class, its verbs — read, write, and the five that change where a file is rather than what is
+// in it — and the two answers to "who holds the key". Everything else is a type, or the error every
+// failure arrives in.
 //
 // ⛔ THIS ENTRY POINT IS NODE'S. Importing it registers the command-line package's Node host — the
 //    engine on disk, state in the config directory, the real environment — and fills in the three
@@ -54,7 +55,16 @@ export type {
   RegisteredUser,
   ScopeName,
 } from "./business.ts";
-export type { Entry } from "./list.ts";
+export type { Entry, ListOptions } from "./list.ts";
+// Folders, moving, renaming and the trash: what the five verbs answer.
+export type {
+  MkdirResult,
+  Moved,
+  MoveResult,
+  RemoveResult,
+  RenameResult,
+  RestoreResult,
+} from "./organise.ts";
 // The wallets one NMTS key opens, and which of them pays.
 export type { ActiveWallet, WalletInfo } from "./wallets.ts";
 export type {

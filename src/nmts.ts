@@ -12,7 +12,9 @@
 //    failure of the call that needed it.
 //
 // ⛔ EVERY METHOD IS THE COMMAND-LINE TOOL'S CODE with the terminal taken off. `list` is `nmts ls`,
-//    `put` is `nmts put`, `get` is `nmts get`. Where this file decides something the tool decides
+//    `put` is `nmts put`, `get` is `nmts get`, and `mkdir`, `move`, `rename`, `remove` and
+//    `restore` are `mkdir`, `mv`, `rename`, `rm` and `restore` — the same functions, called by a
+//    program instead of a person. Where this file decides something the tool decides
 //    by asking a person — spending, reading a code from the environment — the decision is the
 //    caller's, made by calling the method, and the README says so at the top.
 
@@ -40,8 +42,20 @@ import {
 } from "./business.ts";
 import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getTo, type GetResult } from "./get.ts";
 import { useHostOptions } from "./host-options.ts";
-import { listEntries, type Entry } from "./list.ts";
+import { listEntries, type Entry, type ListOptions } from "./list.ts";
 import { nodeSeams } from "./node-seams.ts";
+import {
+  makeFolderAt,
+  moveTo,
+  removeToTrash,
+  renameTo,
+  restoreFromTrash,
+  type MkdirResult,
+  type MoveResult,
+  type RemoveResult,
+  type RenameResult,
+  type RestoreResult,
+} from "./organise.ts";
 import {
   bytesSource,
   nameOf,
@@ -333,9 +347,65 @@ export class Nmts {
     return setActiveWallet(this.#account(), index);
   }
 
-  /** Every live file and folder, as paths. Nothing is spent. */
-  async list(): Promise<Entry[]> {
-    return listEntries(this.#account());
+  /**
+   * Every live file and folder, as paths. Nothing is spent.
+   *
+   * `{ trash: true }` includes what is in the trash as well, and each of those carries `trashedAt`.
+   */
+  async list(options: ListOptions = {}): Promise<Entry[]> {
+    return listEntries(this.#account(), options);
+  }
+
+  /**
+   * Make a folder, and any folder above it that is missing. Nothing is spent.
+   *
+   * A folder that is already there is the folder asked for, so this is safe to call twice: the
+   * second call writes nothing and `created` comes back empty.
+   */
+  async mkdir(path: string): Promise<MkdirResult> {
+    return makeFolderAt(this.#account(), path);
+  }
+
+  /**
+   * Move files and folders into a folder — `"/"` for the top of the account. Nothing is spent.
+   *
+   * Everything named moves together or nothing does. A name the destination already holds is
+   * refused (`NAME_TAKEN`) rather than numbered, and a folder asked into its own subtree is
+   * refused (`INTO_ITSELF`).
+   */
+  async move(paths: string | readonly string[], toFolder: string): Promise<MoveResult> {
+    return moveTo(this.#account(), paths, toFolder);
+  }
+
+  /**
+   * Give one file or folder a new name, where it is. Nothing is spent.
+   *
+   * The name is a name: a `/` in it is `BAD_NAME`, and a name the folder already holds is
+   * `NAME_TAKEN`.
+   */
+  async rename(path: string, name: string): Promise<RenameResult> {
+    return renameTo(this.#account(), path, name);
+  }
+
+  /**
+   * Move files and folders to the trash, where they can be restored for thirty days. A folder takes
+   * everything under it.
+   *
+   * ⚠ THE STORAGE IS STILL PAID FOR until the thirty days run out — this is a deletion the account
+   *   can undo, and nothing in this package destroys a stored file for good.
+   */
+  async remove(paths: string | readonly string[]): Promise<RemoveResult> {
+    return removeToTrash(this.#account(), paths);
+  }
+
+  /**
+   * Bring files and folders back out of the trash, to where they were. Nothing is spent.
+   *
+   * Something that is not in the trash is `NOT_IN_TRASH`, and a name taken since is `NAME_TAKEN` —
+   * neither is skipped quietly, because a program has no line of prose to read about it.
+   */
+  async restore(paths: string | readonly string[]): Promise<RestoreResult> {
+    return restoreFromTrash(this.#account(), paths);
   }
 
   /**

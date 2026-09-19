@@ -24,8 +24,8 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are eight: `account`, `walletAddress`, `wallets`,
-`setActiveWallet`, `list`, `put`, `get`, `getTo`, plus the statics `device`, `managed` and `fromEnv`
+method that is not in `dist/index.d.ts`. There are thirteen: `account`, `walletAddress`, `wallets`,
+`setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`, `restore`, plus the statics `device`, `managed` and `fromEnv`
 that make a client.
 
 | | What it does | Where it comes from |
@@ -120,10 +120,22 @@ of them is one.
 | `wallets()` | nothing | server + chain | `{ index, address, active }[]`: the wallets this account made, plus any funded one within twenty of them |
 | `setActiveWallet(n)` | nothing | server | Which of this key's wallets pays from now on. Written into the account's sealed list, so every device follows |
 | `list()` | nothing | server | Every live file and folder as `{ id, path, kind, size, createdAt, updatedAt }`. Trash left out |
+| `list({ trash: true })` | nothing | server | The same list with what is in the trash included; those entries carry `trashedAt` |
+| `mkdir(path)` | nothing | server | Makes the folder and any missing folder above it. A folder already there is a success. `{ path, created }` |
+| `move(paths, toFolder)` | nothing | server | Moves files or folders into a folder; `"/"` is the top. `{ moved: [{ from, to }] }` |
+| `rename(path, name)` | nothing | server | A new name in the same folder. `{ from, to }` |
+| `remove(paths)` | nothing | server | To the trash, restorable for 30 days; a folder takes everything under it. Not erasure: the file keeps its storage. `{ removed }` |
+| `restore(paths)` | nothing | server | Back out of the trash. `{ restored }` |
 | `put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`. `wallet`, `epochs` and `storage` are refused without `pay: "wallet"` |
 | `get(path, { maxBytes? })` | nothing | server + storage network | Whole file in memory, checked first. Refuses over 256 MiB unless raised — use `getTo` |
 | `getTo(path, destination, { force? })` | nothing | server + storage network | Streams to disk through a temporary name; refuses an existing file unless `force`. Node only |
 | `blobSource(blob, name)` | nothing | none | A `Blob` as an upload's bytes, for a file picker, a drag or a `fetch` |
+
+The five that edit the list refuse with an `NmtsError` whose `code` is `NOT_FOUND` (nothing at that
+path, or the path names two things), `NAME_TAKEN` (a move, a rename or a restore would land on a name
+already in that folder — nothing is numbered or replaced), `BAD_NAME`, `NOT_IN_TRASH` or
+`INTO_ITSELF`. With a delegation token all five need `files_write`. Do not retry a refusal; read
+`nextStep`.
 
 `options` is `{ server?, network?, aggregators?, relay?, suiRpc?, onProgress?, wasmUrl? }`.
 Paths are as `list()` prints them: `photos/2026/cat.jpg`.
@@ -166,9 +178,11 @@ signing.
 
 ## What this library does not do
 
-- **Folders, renaming, the trash, sharing, extending a lease, the recovery list.** Use the
-  command-line tool for those (`nmts mkdir`, `nmts mv`, `nmts rm`, `nmts share`, `nmts extend`);
-  this package is built on its library surface and does not duplicate it.
+- **Sharing, extending a lease, the recovery list, erasing a file for good.** Use the command-line
+  tool for those (`nmts share`, `nmts extend`, `nmts recovery-list`, `nmts erase`); this package is
+  built on its library surface and does not duplicate it. `remove()` is the trash, and erasing for
+  good is a person's act there.
+
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.
   Nothing here buys or exchanges coins.
