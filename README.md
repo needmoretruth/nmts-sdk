@@ -283,6 +283,40 @@ place of `apiKey` in `Nmts.device()` and `Nmts.managed()`, and every method work
 cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
 those with `DELEGATION_SCOPE`.
 
+## An S3 gateway you run yourself
+
+`@needmoretruth/nmts-sdk/gateway` is the S3 server behind `nmts s3`, as a function your own server
+calls. A storage adapter in Django, Rails or Laravel, a backup tool or an image pipeline that speaks
+S3 then reads and writes NMTS accounts with its usual endpoint setting. Node only.
+
+```js
+import { createS3Gateway } from "@needmoretruth/nmts-sdk/gateway";
+
+const gateway = createS3Gateway({
+  credentials: [{ accessKeyId, secretAccessKey, buckets: ["acme-user-17"] }],
+  bucket: async (name) => clientFor(name),   // an Nmts client on any root, or null
+  write: true,
+});
+await gateway.listen(9000);                  // 127.0.0.1 unless you pass a host
+// or mount it in a server of your own: https.createServer(tls, gateway.handler)
+```
+
+- **A bucket is an account.** `bucket(name)` answers the `Nmts` client for that name, or `null` for
+  `NoSuchBucket`. The answer is remembered for a minute (a `null` for five seconds), for at most 256
+  names, so taking a user's access away takes up to a minute to show here.
+- **`buckets` on a key pair is the wall between your users.** A pair held to named buckets gets
+  `AccessDenied` for any other name, with the same answer whether or not that bucket exists. There
+  are 1 to 16 pairs; `accessKeyId` is 16 to 128 characters and `secretAccessKey` at least 32, and a
+  weaker pair throws `GATEWAY_CREDENTIALS` when the gateway is made.
+- **`write` is off unless you turn it on**, and then an upload spends what `put()` spends. A delete
+  is `remove()`: the trash, restorable for 30 days. A key that already holds a different file is
+  refused with `409`; the same file again is a `200` that sends and spends nothing.
+- **Between the S3 client and the gateway the files are not encrypted.** That is what S3 clients
+  send. Keep the gateway on loopback or a private network, or mount `handler` behind your own TLS.
+- An upload in pieces is kept in `stagingDir` until it completes: by default a folder of the
+  gateway's own under the system's temporary directory, readable by your user alone, which `close()`
+  removes. `log` gets one line per answered request — method, bucket and status, never a file name.
+
 ## Limits
 
 - **A business may build its own product on NMTS.** [Terms 3.7](https://nmts.me/terms) covers it:

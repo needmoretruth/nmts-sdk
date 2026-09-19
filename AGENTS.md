@@ -176,6 +176,24 @@ both to the person.
 both numbers when the wallet cannot cover it. A real `put()` in that state throws rather than
 signing.
 
+## The S3 gateway
+
+`@needmoretruth/nmts-sdk/gateway` exports `createS3Gateway({ credentials, bucket, write?,
+stagingDir?, log? })`, which answers `{ handler, listen(port, host?), close() }`. It is Node only and
+is not in the browser entry.
+
+- `credentials`: 1 to 16 pairs `{ accessKeyId, secretAccessKey, buckets? }`. `accessKeyId` is 16 to
+  128 characters, `secretAccessKey` at least 32. They are checked when the gateway is made, and a
+  weak pair, an empty list or a repeated id throws `GATEWAY_CREDENTIALS` naming the rule. Take them
+  from the person's secret store; do not invent them in code that is committed.
+- `bucket(name)` answers an `Nmts` client on any root, or `null` (`NoSuchBucket`). It is asked at
+  most once a minute per name. A pair with `buckets` is refused `AccessDenied` for every other name.
+- `write` defaults to `false`: every upload and delete is refused with a sentence saying so. With
+  `write: true` **an upload spends what `put()` spends**, and a delete is `remove()` — the trash.
+- `listen(port)` binds `127.0.0.1` and answers `{ port, host }`. Another host is the person's
+  decision, not yours: between an S3 client and the gateway the files are not encrypted. `handler` is
+  a plain `(req, res)` function for a server the person already runs behind TLS.
+
 ## What this library does not do
 
 - **Sharing, extending a lease, the recovery list, erasing a file for good.** Use the command-line
