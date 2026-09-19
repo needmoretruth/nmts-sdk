@@ -44,6 +44,18 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm install
       - run: npm run typecheck
+      # The tests borrow the command-line package's own fakes from a checkout beside this one
+      # (`../cli`), the way the source tree is laid out; the registry package carries no tests.
+      # The checkout is the exact version this package depends on, so the fakes match the code.
+      # ⚠ release.yml carries the same step. This one was missing here, so every push to main
+      #   failed on a module it could not find while every tag passed.
+      - name: The command-line package beside this one, at the version this package depends on
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=$(node -p "require('./package.json').dependencies['@needmoretruth/nmts-cli'].replace(/^[\^~]/, '')")
+          git clone --depth 1 --branch "v$v" https://github.com/needmoretruth/nmts-cli ../cli
+          cd ../cli && npm install && npm run compile
       - run: npm test
 
       # ⛔ WHAT THE PACKAGE CARRIES, NOT WHAT THE CHECKOUT CONTAINS. A test suite runs the source
