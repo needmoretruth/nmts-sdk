@@ -46,8 +46,8 @@ The bytes live on **Walrus**, a public storage network, paid for on the **Sui** 
   changed while keeping the files.
 - **NMTS charges nothing.** Storage is bought from the Walrus network; nothing is paid to NMTS.
   An upload through this package spends **credits** — storage a donation pool has already paid the
-  network for, which are not sold and cannot be bought, resold or transferred — or, with
-  `pay: "wallet"`, WAL and SUI from the account's own wallet.
+  network for, which are not sold and cannot be bought, resold or transferred — or WAL and SUI from
+  a wallet: the account's own (`pay: "wallet"`) or one you hold the key to (`pay: { signer }`).
 
 NMTS is built and run by one developer. This package, the command-line tool it is built on, the
 encryption engine and the recovery program are open source under Apache-2.0; the server and the
@@ -145,12 +145,85 @@ wallets for one upload. No credits are touched, and the term is yours:
 `storage: "fit" | "whole" | "<object id>"` uses a storage resource the wallet already holds instead
 of buying new storage. Nothing is paid to NMTS on either rail.
 
-There is no confirmation step on either: calling `put()` is the agreement. `dryRun: true` answers
-with the price and spends nothing — on the wallet rail it also reports the address, what the wallet
-holds, and a `shortfall` sentence when that is not enough.
+**A wallet you hold the key to, with `pay: { signer }`** (new in 0.10.0) — the same WAL and SUI, out
+of a wallet this package holds no key to: your user's browser extension, a hardware wallet, a keypair
+your service keeps. `signer` is an address and a function that signs transaction bytes; `epochs` and
+`storage` work exactly as above, and `wallet: n` is refused, because that names a wallet of the NMTS
+key and a call has one payer.
 
-A wallet-paid `put()` reads the price, the chain fee and both balances **before the first
-signature**, and a wallet that is short is refused there, with both numbers, having signed nothing.
+Three things come with it, and they are why it is not the default:
+
+- **Every transaction asks that wallet to sign.** Nothing is approved silently or automatically, and
+  nothing can be batched: one part of a file is two signatures — registering the blob, then
+  certifying it — so a four-part file asks eight times. The parts are **not** uploaded in parallel
+  either; the wallet is asked one transaction at a time, in order. The account's own wallet signs
+  without asking anybody, which is why large files are faster on that rail.
+- **A file paid for this way is not found from the NMTS key alone.** The storage belongs to the
+  signer's address, so the recovery program needs **that address** as well as the key to list what
+  was stored. Storage the account's own wallet paid for is derived from the key itself.
+- **What that wallet paid for, that wallet extends and reshapes.** `extend()` has to be signed by the
+  address that bought the storage — the chain lets nobody else touch it — so pass it the same
+  `pay: { signer }`, and the same for `storage`, `splitStorage`, `mergeStorage` and
+  `transferStorage`. `erase({ releaseStorage: true })` destroys only storage **credits** bought:
+  storage a wallet bought is never touched by it and stays on Walrus until its term ends, whichever
+  wallet paid.
+
+In a page, the wallet the person already uses pays — with `@mysten/dapp-kit`, the wiring is the
+signer object:
+
+```jsx
+import { useCurrentAccount, useSignTransaction } from "@mysten/dapp-kit";
+import { toBase64 } from "@mysten/sui/utils";
+import { Nmts } from "@needmoretruth/nmts-sdk/browser";
+
+function Upload({ accountCode, apiKey }) {
+  const account = useCurrentAccount();
+  const { mutateAsync: sign } = useSignTransaction();
+  async function upload(file) {
+    if (!account) return;                       // nothing is connected: nothing can pay
+    const signer = {
+      address: account.address,
+      // `sign` answers { bytes, signature }, which is what this package takes.
+      signTransaction: ({ bytes, chain }) => sign({ transaction: toBase64(bytes), chain }),
+    };
+    const nmts = Nmts.device({ accountCode, apiKey });
+    const price = await nmts.put({ name: file.name, blob: file }, { pay: { signer }, dryRun: true });
+    console.log(price.wal, price.sui, price.parts);   // what the wallet will be asked for, and how often
+    await nmts.put({ name: file.name, blob: file }, { pay: { signer } });
+  }
+  return <input type="file" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />;
+}
+```
+
+On Node, anything that signs fits the same object — a `@mysten/sui` keypair already answers
+`{ bytes, signature }`:
+
+```js
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { Nmts } from "@needmoretruth/nmts-sdk";
+
+const keypair = Ed25519Keypair.fromSecretKey(process.env.SUI_PRIVATE_KEY);
+const signer = {
+  address: keypair.toSuiAddress(),
+  signTransaction: ({ bytes }) => keypair.signTransaction(bytes),
+};
+
+const nmts = Nmts.fromEnv();
+await nmts.put("/tmp/report.pdf", { pay: { signer }, epochs: 4 });
+```
+
+A wallet that declines — somebody pressed cancel, it is on the other network, it cannot sign this
+shape — comes back as a refusal whose message starts with `WALLET_REFUSED`, before anything is
+submitted. This package submits the signed transaction itself and reads the chain's effects: a digest
+is not a success.
+
+There is no confirmation step on any of the three: calling `put()` is the agreement. `dryRun: true`
+answers with the price and spends nothing — on a wallet rail it also reports the address, what the
+wallet holds, and a `shortfall` sentence when that is not enough.
+
+A wallet-paid `put()` reads the price, the chain fee and both balances of **the wallet that will
+sign** — whichever rail it is — **before the first signature**, and a wallet that is short is refused
+there, with both numbers, having signed nothing.
 
 An upload that is interrupted after the storage was bought is finished by the next `put()` of the
 same file to the same place, **without spending again**: what was bought is written down on this
@@ -196,18 +269,20 @@ await nmts.erase("old.pdf", { confirm: ERASE_CONFIRM })   // { erased, storage }
 await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })
 await nmts.get(path, { maxBytes? })                 // Uint8Array; 256 MiB ceiling unless raised
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
-await nmts.storage()                                // [{ id, sizeBytes, startEpoch, endEpoch, status }] — asks the chain
-await nmts.extend(path, { epochs?, dryRun?, force? })      // more storage time for one file — signs and spends WAL
-await nmts.splitStorage(id, { sizeBytes, dryRun? })        // one storage resource into two
-await nmts.mergeStorage(idA, idB, { dryRun? })             // two into one
-await nmts.transferStorage(id, toAddress, { dryRun? })     // to another wallet — cannot be undone
+await nmts.storage({ pay? })                        // [{ id, sizeBytes, startEpoch, endEpoch, status }] — asks the chain
+await nmts.extend(path, { epochs?, dryRun?, force?, pay? }) // more storage time for one file — signs and spends WAL
+await nmts.splitStorage(id, { sizeBytes, dryRun?, pay? })   // one storage resource into two
+await nmts.mergeStorage(idA, idB, { dryRun?, pay? })        // two into one
+await nmts.transferStorage(id, toAddress, { dryRun?, pay? }) // to another wallet — cannot be undone
 
 blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker, a drag or a fetch
 ```
 
 - **Storage control: `storage`, `extend`, `splitStorage`, `mergeStorage`, `transferStorage`.** Storage
-  on Walrus is an object the account's wallet holds, with a size and a period. `storage()` lists the
-  ones the wallet holds that are not bound inside a file. The other four sign with that wallet. With
+  on Walrus is an object a wallet holds, with a size and a period. `storage()` lists the ones the
+  account's own wallet holds that are not bound inside a file, and the other four sign with that
+  wallet — `pay: { signer }` points all five at a wallet you hold instead, which is the wallet that
+  can act on what it paid for. With
   `dryRun: true` each returns a review and signs nothing: `{ wal, sui, wallet: { address, wal, sui },
   shortfall }` in the units `put()` uses, plus what the act would produce. `sui` is `null` when the
   fee could not be measured, never 0. Without `dryRun` the call is the agreement, as with `put()`,

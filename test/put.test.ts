@@ -113,7 +113,7 @@ for (const { name, root, opens } of rootsUnderTest()) {
       for (const options of [{ wallet: 1 }, { epochs: 5 }, { storage: "fit" }]) {
         await assert.rejects(
           putSource(opened, bytesSource(new Uint8Array(3)), "x.txt", options, rail),
-          /only applies with `pay: "wallet"`/,
+          /only applies when a wallet is paying/,
         );
       }
       assert.equal(calls.reserve, 0);

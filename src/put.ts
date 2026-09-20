@@ -39,6 +39,7 @@ import {
 } from "@needmoretruth/nmts-cli/portable";
 
 import { readList } from "./list.ts";
+import type { PayFrom } from "./pay.ts";
 import { withAccount, withDataKey, type Opened } from "./session.ts";
 
 /** 64 MiB — the same part size the command-line tool uses when nobody says otherwise. */
@@ -66,20 +67,39 @@ export interface PutOptions {
    */
   partSize?: number | undefined;
   /**
-   * Which money buys the storage: the account's credits (the default), or the account's own
-   * wallet — WAL for the storage and SUI for the relay's tip and the chain fees.
+   * Which money buys the storage: the account's credits (the default), the account's own wallet, or
+   * a wallet you hold the key to. Either wallet spends WAL for the storage and SUI for the relay's
+   * tip and the chain fees.
+   *
+   * `pay: { signer }` is somebody's OWN wallet, and it costs three things — said here because this
+   * is where it is chosen:
+   *
+   * ⛔ EVERY TRANSACTION ASKS THAT WALLET TO SIGN. Nothing is approved silently or automatically and
+   *    nothing can be batched: one part of a file is two signatures, registering and certifying, so
+   *    a four-part file asks eight times. The parts are NOT uploaded in parallel either — a wallet
+   *    is asked one transaction at a time, in order.
+   * ⛔ A FILE PAID FOR THIS WAY IS NOT FOUND FROM THE NMTS KEY ALONE. The storage belongs to that
+   *    wallet's address, so recovering the account needs the ADDRESS as well as the key to find what
+   *    was stored; storage the account's own wallet paid for comes out of the key itself.
+   * ⛔ WHAT THIS WALLET PAID FOR, THIS WALLET EXTENDS AND RESHAPES. `extend()` and the three storage
+   *    verbs have to be signed by the address that bought the storage — the chain lets nobody else
+   *    touch it — so they take the same `pay`. `erase({ releaseStorage: true })` destroys only what
+   *    credits bought; storage a wallet bought stays on the network until its term ends.
    */
-  pay?: "credits" | "wallet" | undefined;
+  pay?: PayFrom | undefined;
   /**
-   * `pay: "wallet"` only: which of this key's wallets pays, by index. Absent = the one the account
+   * A wallet rail only: which of this key's wallets pays, by index. Absent = the one the account
    * pays from. Naming one here is for this upload alone and writes nothing —
    * `setActiveWallet()` is how an account changes which wallet pays.
+   *
+   * ⛔ NOT WITH `pay: { signer }`, which names a wallet this key does not derive. Two payers in one
+   *    call is a mistake rather than a preference, so it is refused.
    */
   wallet?: number | undefined;
-  /** `pay: "wallet"` only: how many of the storage network's epochs to buy. Default 2. */
+  /** A wallet rail only: how many of the storage network's epochs to buy. Default 2. */
   epochs?: number | undefined;
   /**
-   * `pay: "wallet"` only: use a storage resource the wallet already holds instead of buying new
+   * A wallet rail only: use a storage resource the paying wallet already holds instead of buying new
    * storage. `fit` cuts the smallest one that fits and leaves the rest free, `whole` binds one
    * whole, and an object id names one. A held resource serves a one-part file.
    */
@@ -231,9 +251,9 @@ function refuseWalletOnlyOptions(options: PutOptions): void {
           ? "storage"
           : null;
   if (asked === null) return;
-  throw new NmtsError(`\`${asked}\` only applies with \`pay: "wallet"\`.`, {
+  throw new NmtsError(`\`${asked}\` only applies when a wallet is paying.`, {
     exitCode: 2,
-    nextStep: `Nothing was sent and nothing was charged. Add \`pay: "wallet"\` to buy the storage from the account's own wallet, or drop \`${asked}\` to pay with credits.`,
+    nextStep: `Nothing was sent and nothing was charged. Add \`pay: "wallet"\` to buy the storage from the account's own wallet — or \`pay: { signer }\` to buy it from a wallet you hold — or drop \`${asked}\` to pay with credits.`,
   });
 }
 

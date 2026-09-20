@@ -70,6 +70,8 @@ export type {
   RestoreResult,
 } from "./organise.ts";
 export type { ActiveWallet, WalletInfo } from "./wallets.ts";
+// Which money buys the storage, and the wallet a caller holds the key to.
+export type { ExternalSigner, PayerOptions, PayFrom } from "./pay.ts";
 export type {
   CreditsPut,
   CreditsReview,

@@ -22,6 +22,7 @@ import {
   type PutReview,
   type UploadRail,
 } from "../put.ts";
+import { paysFromWallet } from "../pay.ts";
 import { putSourceWithWallet } from "../put-wallet.ts";
 import type { Opened } from "../session.ts";
 import { blobSource } from "../source-blob.ts";
@@ -39,7 +40,9 @@ export async function putVia(
 ): Promise<PutResult | PutReview> {
   const { source, name: own } = sourceOf(file);
   const name = options.name ?? own;
-  if (options.pay === "wallet") return putSourceWithWallet(opened, source, name, options);
+  // Both wallets take the same rail: which wallet signs is decided inside it, and the credit rail
+  // cannot price in WAL whichever wallet it is.
+  if (paysFromWallet(options.pay)) return putSourceWithWallet(opened, source, name, options);
   return putSource(opened, source, name, options, (sealedBytes) => creditRail(opened, sealedBytes, options));
 }
 

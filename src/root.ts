@@ -18,7 +18,7 @@
 //    think is calling". Where to talk is `NmtsOptions`, because the same key is the same account on
 //    any server, and a root carrying an address would be a key that only worked against one.
 
-import { NmtsError } from "@needmoretruth/nmts-cli/portable";
+import { DELEGATION_PREFIX, fromBase64Url, fromUtf8, NmtsError } from "@needmoretruth/nmts-cli/portable";
 
 /**
  * Which process holds the key.
@@ -172,4 +172,28 @@ export function managedRoot(source: ManagedCredentials): Root {
       }
     },
   };
+}
+
+/**
+ * The scope bits a delegation token names, read out of the token this process is holding — or null
+ * when there is nothing to read them from (an API key, or a token this version cannot parse).
+ *
+ * ⚠ IT IS NOT A CHECK THAT THE TOKEN IS VALID. Whether the signature holds and whether it has run
+ *   out are the server's judgement and stay there; what is read here is what the business minted the
+ *   token FOR, which is the one thing a caller can act on BEFORE spending. A token this cannot read
+ *   is not a token anything may refuse on: every request before a signature already went through the
+ *   server, which is the authority on what a token opens.
+ */
+export function delegationScope(identity: Identity): number | null {
+  if (identity.kind !== "delegation" || !identity.token.startsWith(DELEGATION_PREFIX)) return null;
+  const payload = identity.token.slice(DELEGATION_PREFIX.length).split(".")[0];
+  if (payload === undefined || payload === "") return null;
+  try {
+    const parsed: unknown = JSON.parse(fromUtf8(fromBase64Url(payload)));
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const scope: unknown = Reflect.get(parsed, "s");
+    return typeof scope === "number" && Number.isSafeInteger(scope) ? scope : null;
+  } catch {
+    return null;
+  }
 }

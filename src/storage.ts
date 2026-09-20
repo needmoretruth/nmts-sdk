@@ -21,14 +21,7 @@
 //    without it would be refused AFTER the WAL had left the wallet, so the token's own scope is read
 //    here first — it is in the token, which this process holds.
 
-import {
-  DELEGATION_PREFIX,
-  fromBase64Url,
-  fromUtf8,
-  NmtsError,
-  SCOPE_BITS,
-  walletAddress,
-} from "@needmoretruth/nmts-cli/portable";
+import { NmtsError, SCOPE_BITS, walletAddress } from "@needmoretruth/nmts-cli/portable";
 import {
   applyExtension,
   listStorage,
@@ -47,6 +40,8 @@ import {
 } from "@needmoretruth/nmts-cli/storage-control";
 
 import { readList } from "./list.ts";
+import { extendSigner, payerOf, reshapeSigner, type PayerOptions } from "./pay.ts";
+import { delegationScope } from "./root.ts";
 import { withAccount, type Opened } from "./session.ts";
 
 /** One storage resource the account's wallet holds free — bought, and not bound inside a file. */
@@ -121,7 +116,7 @@ export type TransferReview = Reviewed & Transferred;
 export type TransferResult = Signed & Transferred;
 
 /** What `extend()` takes. */
-export interface ExtendOptions {
+export interface ExtendOptions extends PayerOptions {
   /** How many of the storage network's epochs to add. Default 2, the term the tool buys. */
   epochs?: number | undefined;
   /** Say what it would cost and stop. Nothing is signed and no key is derived for signing. */
@@ -135,7 +130,7 @@ export interface ExtendOptions {
 }
 
 /** What the three reshaping calls take. */
-export interface StorageOpOptions {
+export interface StorageOpOptions extends PayerOptions {
   /** Work out the fee and stop. Nothing is signed. */
   dryRun?: boolean | undefined;
 }
@@ -162,9 +157,16 @@ export interface StorageSeams {
  * What the network sells is size and time, not a file: deleting a file returns its remaining time
  * to this wallet, and that is what is listed.
  */
-export async function storageResources(opened: Opened, seams: StorageSeams = {}): Promise<StorageResourceInfo[]> {
+export async function storageResources(
+  opened: Opened,
+  options: PayerOptions = {},
+  seams: StorageSeams = {},
+): Promise<StorageResourceInfo[]> {
+  const payer = payerOf(options);
   return withAccount(opened, async (held) => {
-    const address = await walletAddress(held.code, (await readList(held)).activeWallet);
+    // ⚠ Whose resources: the account's own paying wallet, or the wallet a caller named — the same
+    //   wallet the reshaping calls would sign with, so what is listed is what they can act on.
+    const address = payer?.address ?? (await walletAddress(held.code, (await readList(held)).activeWallet));
     const listed = await listStorage({ network: held.network, address }, seams.readStorage);
     return listed.items.map((r) => ({
       id: r.objectId,
@@ -193,12 +195,16 @@ export async function extendFile(
       nextStep: "Nothing was signed and nothing was charged. Pass the path as `list()` prints it.",
     });
   }
+  const payer = payerOf(options);
   return withAccount(opened, async (held): Promise<ExtendReview | ExtendResult> => {
     const input = { server: held.server, apiKey: held.bearer, code: held.code, accountId: held.accountId, network: held.network };
     const plan = await planExtension(input, path, {
       now: Date.now(),
       epochs: options.epochs,
       readChain: seams.readChain,
+      // ⛔ BEFORE THE PRICE IS MEASURED AGAINST A BALANCE. The address in the plan is the address
+      //    that will sign, and the shortfall below says where to send coins.
+      ...(payer === null ? {} : { payer: { address: payer.address } }),
     });
     const { budget, facts } = plan;
     const bought = { epochs: facts.epochs, endEpoch: facts.newEndEpoch };
@@ -235,7 +241,10 @@ export async function extendFile(
     //    refused after the WAL had gone.
     refuseWithoutSpendScope(opened);
 
-    const outcome = await applyExtension(input, plan, { sign: seams.sign });
+    // ⚠ A `sign` the caller handed in wins: that is the seam a test drives this verb through.
+    const outcome = await applyExtension(input, plan, {
+      sign: seams.sign ?? (payer === null ? undefined : extendSigner(payer.signer)),
+    });
     if (!outcome.recorded) {
       // ⛔ THE STORAGE IS EXTENDED AND PAID FOR. What failed is telling the NMTS server, and saying
       //    "the extension failed" would invite a second call — which pays again.
@@ -319,12 +328,24 @@ async function reshape(
   options: StorageOpOptions,
   seams: StorageSeams,
 ): Promise<ReshapeOutcome> {
+  const payer = payerOf(options);
   return withAccount(opened, async (held) => {
     const wallet = (await readList(held)).activeWallet;
     return reshapeStorage(
-      { network: held.network, code: held.code, wallet, address: await walletAddress(held.code, wallet) },
+      {
+        network: held.network,
+        code: held.code,
+        wallet,
+        // ⛔ READ, PRICED AND SIGNED AS ONE ADDRESS — the account's own wallet, or the one a caller
+        //    named. A resource is only reshaped by the wallet that holds it.
+        address: payer?.address ?? (await walletAddress(held.code, wallet)),
+      },
       ask,
-      { reads: seams.reads, sign: seams.signStorage, dryRun: options.dryRun === true },
+      {
+        reads: seams.reads,
+        sign: seams.signStorage ?? (payer === null ? undefined : reshapeSigner(payer.signer)),
+        dryRun: options.dryRun === true,
+      },
     );
   });
 }
@@ -346,33 +367,14 @@ function walletOf({ budget }: ExtendPlan): StorageWallet {
 }
 
 /**
- * The scope bits the delegation token names, read from the token this process is holding — or null
- * when there is nothing to read them from (an API key, or a token this version cannot parse).
+ * Refuse a delegated call that could sign and then fail to be recorded.
  *
- * ⚠ IT IS NOT A CHECK THAT THE TOKEN IS VALID. Whether the signature holds and whether it has run
- *   out are the server's judgement and stay there; what is read here is what the business minted
- *   the token FOR, which is the one thing a caller can act on before spending.
+ * ⛔ BEFORE THE SIGNATURE, because the storage would already be paid for by the time the server
+ *    refused to write the new date down. What the token was minted for is in the token, which this
+ *    process holds — `delegationScope` reads it.
  */
-function delegationScope(opened: Opened): number | null {
-  const identity = opened.root.identity;
-  if (identity.kind !== "delegation" || !identity.token.startsWith(DELEGATION_PREFIX)) return null;
-  const payload = identity.token.slice(DELEGATION_PREFIX.length).split(".")[0];
-  if (payload === undefined || payload === "") return null;
-  try {
-    const parsed: unknown = JSON.parse(fromUtf8(fromBase64Url(payload)));
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const scope: unknown = Reflect.get(parsed, "s");
-    return typeof scope === "number" && Number.isSafeInteger(scope) ? scope : null;
-  } catch {
-    // A token this cannot read is not a token this may refuse on: every request before the
-    // signature already went through the server, which is the authority on what a token opens.
-    return null;
-  }
-}
-
-/** Refuse a delegated call that could sign and then fail to be recorded. */
 function refuseWithoutSpendScope(opened: Opened): void {
-  const scope = delegationScope(opened);
+  const scope = delegationScope(opened.root.identity);
   if (scope === null || (scope & SCOPE_BITS.storage_spend) !== 0) return;
   throw new NmtsError(
     "DELEGATION_SCOPE: this delegation token was minted without `storage_spend`, so the NMTS server " +
@@ -380,9 +382,8 @@ function refuseWithoutSpendScope(opened: Opened): void {
     {
       exitCode: 3,
       nextStep:
-        "Nothing was signed and nothing was charged — the check is made before the signature, " +
-        "because the storage would already be paid for by the time the server refused. Ask the " +
-        "business this account belongs to for a token that carries `storage_spend`.",
+        "Nothing was signed and nothing was charged. Ask the business this account belongs to for a " +
+        "token that carries `storage_spend`.",
     },
   );
 }

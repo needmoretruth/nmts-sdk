@@ -95,9 +95,11 @@ limits; this library cannot do any of them, on purpose.
 2. **`put()` spends and there is no confirmation step.** Calling it is the agreement. By default it
    spends credits — one per started MiB of sealed bytes. With `pay: "wallet"` it spends WAL and SUI
    from the wallet this account pays from instead (`wallet: n` names another for one upload), and no
-   credits. Neither comes back. Before the
-   first upload of a session, say which of the two it will be to the person if they have not already
-   asked for uploads. `dryRun: true` answers the price and spends nothing.
+   credits. With `pay: { signer }` the WAL and SUI come from a wallet the caller holds the key to,
+   which is asked to sign every transaction — two per part, never batched, never in parallel. None of
+   it comes back. Before the first upload of a session, say which of the three it will be to the
+   person if they have not already asked for uploads. `dryRun: true` answers the price and spends
+   nothing.
 3. **Do not guess the network.** For any server but `https://nmts.me`, `network` must be given.
    The wrong one does not error; it finds nothing.
 4. **Do not invent methods.** `dist/index.d.ts` is the list.
@@ -133,15 +135,15 @@ of them is one.
 | `remove(paths)` | nothing | server | To the trash, restorable for 30 days; a folder takes everything under it. Not erasure: the file keeps its storage. `{ removed }` |
 | `erase(paths, { confirm, releaseStorage? })` | nothing | server | ⛔ **Permanent.** Erases the server's record, this account's key to the file and its list entry; a folder erases every file under it. `confirm` must be `ERASE_CONFIRM` ("I UNDERSTAND THIS IS PERMANENT") word for word, or nothing is sent (`ERASE_NOT_CONFIRMED`). Ask the person before you write that call, every time. `{ erased, storage }` |
 | `restore(paths)` | nothing | server | Back out of the trash. `{ restored }` |
-| `put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`. `wallet`, `epochs` and `storage` are refused without `pay: "wallet"` |
+| `put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` or `pay: { signer }` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`. `wallet`, `epochs` and `storage` are refused unless a wallet is paying, and `wallet` with `pay: { signer }` is `TWO_PAYERS` |
 | `get(path, { maxBytes? })` | nothing | server + storage network | Whole file in memory, checked first. Refuses over 256 MiB unless raised — use `getTo` |
 | `getTo(path, destination, { force? })` | nothing | server + storage network | Streams to disk through a temporary name; refuses an existing file unless `force`. Node only |
 | `blobSource(blob, name)` | nothing | none | A `Blob` as an upload's bytes, for a file picker, a drag or a `fetch` |
 
-| `storage()` | nothing | chain | The storage resources this account's wallet holds that are not bound inside a file: `{ id, sizeBytes, startEpoch, endEpoch, status }` |
-| `extend(path, { epochs?, dryRun?, force? })` | ⛔ WAL and the chain fee, from the wallet | chain + server | More time for one file. `dryRun: true` returns the price and signs nothing; without it the call is the agreement. Refuses a file nowhere near its end unless `force`. `EXTEND_RECORDED_LATE` means the storage is bought and the record failed — **do not call again**. With a delegation token it needs `storage_spend`, read from the token before anything is signed |
-| `splitStorage(id, { sizeBytes, dryRun? })` · `mergeStorage(idA, idB, { dryRun? })` | the chain fee | chain | One resource into two, or two into one. `dryRun: true` first |
-| `transferStorage(id, toAddress, { dryRun? })` | the chain fee | chain | ⛔ **Cannot be undone.** Hands a resource to another wallet; no file goes with it. Ask the person before you write this call |
+| `storage({ pay? })` | nothing | chain | The storage resources this account's wallet holds that are not bound inside a file: `{ id, sizeBytes, startEpoch, endEpoch, status }`. `pay: { signer }` lists a wallet the caller holds instead |
+| `extend(path, { epochs?, dryRun?, force?, pay? })` | ⛔ WAL and the chain fee, from the wallet | chain + server | More time for one file. `dryRun: true` returns the price and signs nothing; without it the call is the agreement. Refuses a file nowhere near its end unless `force`. `EXTEND_RECORDED_LATE` means the storage is bought and the record failed — **do not call again**. With a delegation token it needs `storage_spend`, read from the token before anything is signed |
+| `splitStorage(id, { sizeBytes, dryRun?, pay? })` · `mergeStorage(idA, idB, { dryRun?, pay? })` | the chain fee | chain | One resource into two, or two into one. `dryRun: true` first |
+| `transferStorage(id, toAddress, { dryRun?, pay? })` | the chain fee | chain | ⛔ **Cannot be undone.** Hands a resource to another wallet; no file goes with it. Ask the person before you write this call |
 
 The five that edit the list refuse with an `NmtsError` whose `code` is `NOT_FOUND` (nothing at that
 path, or the path names two things), `NAME_TAKEN` (a move, a rename or a restore would land on a name
@@ -162,6 +164,19 @@ calls that need files — a path in `put()`, `getTo()` and `Nmts.fromEnv()` — 
 The key stays in the page's memory and NMTS never sees it; the page's code is the developer's, so
 the person is as safe as their trust in that page. Recipes: `examples/next-embedded/UploadButton.jsx`
 (browser, device) and `examples/node-managed/server.mjs` (Node, managed).
+
+### A wallet the caller holds: `pay: { signer }`
+
+`signer` is `{ address, signTransaction({ bytes, chain }) }` — the wallet standard's answer,
+`{ bytes, signature }`, which is what a browser extension through `useSignTransaction()` and a
+`@mysten/sui` keypair both already give. The address is judged before the account is opened
+(`PAYER_ADDRESS` when it is not `0x` and 64 hex characters), it is the address the price, both
+balances and the shortfall sentence name, and the same `pay` goes to `extend`, `storage`,
+`splitStorage`, `mergeStorage` and `transferStorage`. A wallet that declines is `WALLET_REFUSED`,
+raised before anything is submitted. Say these three to the person before the first such upload:
+every transaction asks that wallet to sign; storage it pays for is not found from the NMTS key alone,
+so recovery needs that address; and only that wallet can extend or reshape what it bought —
+`erase({ releaseStorage: true })` destroys only what credits bought, whichever wallet paid.
 
 ### Many wallets from one key
 

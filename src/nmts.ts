@@ -62,6 +62,7 @@ import {
 } from "./organise.ts";
 import type { PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
+import type { PayerOptions } from "./pay.ts";
 import * as storageControl from "./storage.ts";
 import { openAccount, withAccount, type Opened } from "./session.ts";
 import { addressOfWallet, setActiveWallet, wallets, type ActiveWallet, type WalletInfo } from "./wallets.ts";
@@ -336,8 +337,9 @@ export class Nmts {
    * sealed bytes, for the storage period the account buys uploads for. With `pay: "wallet"` it
    * spends WAL and SUI out of the wallet the account pays from instead — `wallet: n` names another
    * of this key's wallets for this one upload — for as many of the storage network's epochs as
-   * `epochs` asks for. Neither comes back, and calling this is the agreement to that;
-   * `dryRun: true` says what it would cost and spends nothing.
+   * `epochs` asks for. With `pay: { signer }` the same WAL and SUI come from a wallet you hold the
+   * key to, which is asked to sign every transaction. None of it comes back, and calling this is the
+   * agreement to that; `dryRun: true` says what it would cost and spends nothing.
    *
    * A path names a file on this machine; bytes need a `name`. A name already in use is numbered,
    * `report (2).pdf`, unless the machine's `nmts on-collision` setting says overwrite.
@@ -348,12 +350,18 @@ export class Nmts {
     return putVia(this.#account(), file, options);
   }
 
-  /** Every free storage resource the paying wallet holds, usable first. Nothing is spent. */
-  async storage(): Promise<storageControl.StorageResourceInfo[]> {
-    return storageControl.storageResources(this.#account());
+  /**
+   * Every free storage resource the paying wallet holds, usable first. Nothing is spent.
+   * `pay: { signer }` lists what a wallet you hold holds instead — what that signer can act on.
+   */
+  async storage(options: PayerOptions = {}): Promise<storageControl.StorageResourceInfo[]> {
+    return storageControl.storageResources(this.#account(), options);
   }
 
-  /** Buy one stored file more time. **This spends WAL and SUI** from the paying wallet; `dryRun: true` only prices it. */
+  /**
+   * Buy one stored file more time. **This spends WAL and SUI** from the paying wallet; `dryRun: true`
+   * only prices it. ⛔ What a wallet you hold paid for, that wallet extends: pass the same `pay`.
+   */
   async extend(path: string, options: storageControl.ExtendOptions = {}) {
     return storageControl.extendFile(this.#account(), path, options);
   }

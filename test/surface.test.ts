@@ -99,6 +99,11 @@ const NOT_VERBS = new Set([
   "node-seams",
   "state-idb",
   "state-memory",
+  // ⛔ `pay` IS NOT A VERB EITHER: it is WHO PAYS — the shape of a wallet a caller holds, the address
+  //    judged before anything opens, and the three seams a signature travels through. It touches no
+  //    account and no root, and the verbs that use it are walked through every root by
+  //    `put-wallet.test.ts`, `put-external-signer.test.ts` and `storage.test.ts`.
+  "pay",
 ]);
 
 test("every verb file has a test that walks it through every root", () => {

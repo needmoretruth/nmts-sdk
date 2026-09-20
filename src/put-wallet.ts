@@ -1,12 +1,18 @@
-// One file in, bought with the account's OWN WALLET: the same seal-push-record path as the credit
-// rail, with the storage bought on the Sui chain instead of out of the treasury. The shared types,
-// the shared spellings and the credit rail itself are `put.ts`.
+// One file in, bought with A WALLET: the same seal-push-record path as the credit rail, with the
+// storage bought on the Sui chain instead of out of the treasury. The shared types, the shared
+// spellings and the credit rail itself are `put.ts`.
 //
 // ⛔ THIS IS THE FILE THAT SIGNS. `pay: "wallet"` spends WAL for the storage and SUI for the
 //    relay's tip and the chain fees, out of the wallet this account pays from — `wallet` when the
 //    caller named one, and otherwise the account's own number. None of it comes back and there is
 //    no agreement step — a library has nobody to ask — so calling `put` IS the agreement, exactly
 //    as the credit rail says.
+//
+// ⛔ AND `pay: { signer }` SPENDS SOMEBODY ELSE'S WALLET, which this package holds no key to. What
+//    changes is only WHO IS ASKED: the payer's address goes in before anything is priced, so the
+//    quote, both balances, the measured fee, the review and the sentence saying where to send coins
+//    all name that wallet, and the signatures come from it instead of from this key. The order, the
+//    refusals and the records are the same code either way — the command-line package's `walletPut`.
 //
 // ⛔ THE ORDER IS THE SAFETY, AND IT IS NOT THIS FILE'S. The price, both balances and a shortfall
 //    all come before the first signature, and that order is the command-line tool's `walletPut`,
@@ -19,6 +25,7 @@
 import {
   folderIdFor,
   loadCrypto,
+  NmtsError,
   walletPut,
   type PlaintextSource,
   type WalletPutReview,
@@ -26,6 +33,7 @@ import {
 } from "@needmoretruth/nmts-cli/portable";
 
 import { readList } from "./list.ts";
+import { blobSigners, requirePayerAddress, signerOf } from "./pay.ts";
 import {
   DEFAULT_PART_BYTES,
   destinationOf,
@@ -63,8 +71,22 @@ export async function putSourceWithWallet(
 ): Promise<WalletPut | WalletReview> {
   requireName(name);
   const destination = destinationOf(options.to);
-  // ⛔ A NAMED WALLET IS JUDGED BEFORE ANYTHING IS OPENED: a number that is not one is a call to
-  //    fix, and refusing it here costs nobody the opening of a business's sealed store.
+  const signer = signerOf(options.pay);
+  // ⛔ TWO PAYERS IN ONE CALL IS A MISTAKE, NOT A PREFERENCE. `wallet` names one of the wallets this
+  //    NMTS key derives and `pay: { signer }` names a wallet it does not; whichever this package
+  //    then picked, the other would be the one somebody had funded.
+  if (signer !== null && options.wallet !== undefined) {
+    throw new NmtsError("TWO_PAYERS: `wallet` names one of this key's wallets, and `pay: { signer }` names another wallet.", {
+      exitCode: 2,
+      nextStep:
+        "Nothing was sent and nothing was signed. Drop `wallet` to pay from the signer you passed, " +
+        "or drop the signer and pay from `wallet` — one call, one payer.",
+    });
+  }
+  // ⛔ A NAMED WALLET AND A PAYER'S ADDRESS ARE JUDGED BEFORE ANYTHING IS OPENED: a number that is
+  //    not one, or an address that is not one, is a call to fix, and refusing it here costs nobody
+  //    the opening of a business's sealed store.
+  const payer = signer === null ? null : { address: requirePayerAddress(signer.address) };
   const named = options.wallet === undefined ? null : requireWalletIndex(options.wallet);
   // ⛔ ONE BORROW FOR THE WHOLE RAIL. The code seals the file AND derives the wallet that signs,
   //    so `WalletPutContext.code` is the same borrowed copy the list was opened with rather than a
@@ -86,9 +108,15 @@ export async function putSourceWithWallet(
         //    the review names has to be the address that signs, and asking for the number later
         //    would let those two differ.
         wallet: named ?? activeWallet,
+        // ⛔ AND WHEN SOMEBODY ELSE'S WALLET PAYS, IT IS PRICED INSTEAD OF THAT NUMBER. Everything
+        //    the review says — the quote's sender, both balances, the measured fee, where to send
+        //    coins — then names the wallet that will sign.
+        ...(payer === null ? {} : { payer }),
       },
       { source, name, parentId, destination },
       {
+        // ⚠ A `sign` the caller handed in wins: that is the seam a test drives this rail through.
+        ...(signer === null ? {} : { sign: blobSigners(signer) }),
         ...seams,
         epochs: options.epochs,
         storage: options.storage,

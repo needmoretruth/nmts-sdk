@@ -120,9 +120,11 @@ for (const { name, root, opens } of rootsUnderTest()) {
     await withSandbox(drive, `sdk-storage-list-${name}`, async (code) => {
       await drive.serve(code, []);
       const opened = account(code);
-      const held = await storageResources(opened, {
-        readStorage: async () => ({ items: [A, B, C, D], currentEpoch: 12 }),
-      });
+      const held = await storageResources(
+        opened,
+        {},
+        { readStorage: async () => ({ items: [A, B, C, D], currentEpoch: 12 }) },
+      );
       assert.deepEqual(
         held.map((r) => [r.id, r.status]),
         [
