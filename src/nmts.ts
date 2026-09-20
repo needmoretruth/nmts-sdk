@@ -1,4 +1,4 @@
-// `Nmts` — one account, opened once, with the three things a program does with storage.
+// `Nmts` — one account, opened once, and everything a program does with its storage.
 //
 // ⛔ THE ROOT IS THE FIRST ARGUMENT BECAUSE IT IS THE ONE DECISION THAT MATTERS. Who holds the
 //    account's key — this process, or a business's sealed store — is answered once, where the
@@ -11,12 +11,12 @@
 //    call rather than in a constructor that cannot be awaited, and a server that is down is a
 //    failure of the call that needed it.
 //
-// ⛔ EVERY METHOD IS THE COMMAND-LINE TOOL'S CODE with the terminal taken off. `list` is `nmts ls`,
-//    `put` is `nmts put`, `get` is `nmts get`, and `mkdir`, `move`, `rename`, `remove` and
-//    `restore` are `mkdir`, `mv`, `rename`, `rm` and `restore` — the same functions, called by a
-//    program instead of a person. Where this file decides something the tool decides
-//    by asking a person — spending, reading a code from the environment — the decision is the
-//    caller's, made by calling the method, and the README says so at the top.
+// ⛔ EVERY METHOD IS THE COMMAND-LINE TOOL'S CODE with the terminal taken off: `list` is `nmts ls`,
+//    `put` is `nmts put`, `extend` is `nmts extend`, and the storage resource this key's wallet
+//    holds is reshaped by the three the tool spells `nmts wallet storage split|merge|transfer` —
+//    the same functions, called by a program instead of a person. Where this file decides something
+//    the tool decides by asking a person — spending, reading a code from the environment — the
+//    decision is the caller's, made by calling the method, and the README says so at the top.
 //
 // ⚠ WHAT IS NOT A METHOD LIVES IN `nmts/`, and this file is still the name both entry points and
 //   the gateway import: the option shapes, the weak map the gateway reads a client's account out
@@ -75,6 +75,7 @@ import {
 } from "./put.ts";
 import { putSourceWithWallet } from "./put-wallet.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
+import * as storageControl from "./storage.ts";
 import { openAccount, withAccount, type Opened } from "./session.ts";
 import {
   payingWallet,
@@ -353,6 +354,31 @@ export class Nmts {
     //    credit rail below cannot price in WAL or sign a transaction, and it must not learn.
     if (options.pay === "wallet") return putSourceWithWallet(opened, source, name, options);
     return putSource(opened, source, name, options, (sealedBytes) => creditRail(opened, sealedBytes, options));
+  }
+
+  /** Every free storage resource the paying wallet holds, usable first. Nothing is spent. */
+  async storage(): Promise<storageControl.StorageResourceInfo[]> {
+    return storageControl.storageResources(this.#account());
+  }
+
+  /** Buy one stored file more time. **This spends WAL and SUI** from the paying wallet; `dryRun: true` only prices it. */
+  async extend(path: string, options: storageControl.ExtendOptions = {}) {
+    return storageControl.extendFile(this.#account(), path, options);
+  }
+
+  /** Cut a storage resource in two: it keeps `sizeBytes` and the rest becomes a second one. **This spends SUI.** */
+  async splitStorage(id: string, options: storageControl.SplitOptions) {
+    return storageControl.splitStorageResource(this.#account(), id, options);
+  }
+
+  /** Join two of this wallet's storage resources into one. **This spends SUI**, and the contract judges the pair. */
+  async mergeStorage(idA: string, idB: string, options: storageControl.StorageOpOptions = {}) {
+    return storageControl.mergeStorageResources(this.#account(), idA, idB, options);
+  }
+
+  /** Hand a storage resource to a Sui address. **This spends SUI.** ⛔ It cannot be undone; no file goes with it. */
+  async transferStorage(id: string, to: string, options: storageControl.StorageOpOptions = {}) {
+    return storageControl.transferStorageResource(this.#account(), id, to, options);
   }
 
   /** One file, whole and checked, in memory. Nothing is spent. */

@@ -24,8 +24,8 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are fourteen: `account`, `walletAddress`, `wallets`,
-`setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`, `restore`, `erase`, plus the statics `device`, `managed` and `fromEnv`
+method that is not in `dist/index.d.ts`. There are nineteen: `account`, `walletAddress`, `wallets`,
+`setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`, `restore`, `erase`, `storage`, `extend`, `splitStorage`, `mergeStorage`, `transferStorage`, plus the statics `device`, `managed` and `fromEnv`
 that make a client.
 
 | | What it does | Where it comes from |
@@ -138,6 +138,11 @@ of them is one.
 | `getTo(path, destination, { force? })` | nothing | server + storage network | Streams to disk through a temporary name; refuses an existing file unless `force`. Node only |
 | `blobSource(blob, name)` | nothing | none | A `Blob` as an upload's bytes, for a file picker, a drag or a `fetch` |
 
+| `storage()` | nothing | chain | The storage resources this account's wallet holds that are not bound inside a file: `{ id, sizeBytes, startEpoch, endEpoch, status }` |
+| `extend(path, { epochs?, dryRun?, force? })` | ⛔ WAL and the chain fee, from the wallet | chain + server | More time for one file. `dryRun: true` returns the price and signs nothing; without it the call is the agreement. Refuses a file nowhere near its end unless `force`. `EXTEND_RECORDED_LATE` means the storage is bought and the record failed — **do not call again**. With a delegation token it needs `storage_spend`, read from the token before anything is signed |
+| `splitStorage(id, { sizeBytes, dryRun? })` · `mergeStorage(idA, idB, { dryRun? })` | the chain fee | chain | One resource into two, or two into one. `dryRun: true` first |
+| `transferStorage(id, toAddress, { dryRun? })` | the chain fee | chain | ⛔ **Cannot be undone.** Hands a resource to another wallet; no file goes with it. Ask the person before you write this call |
+
 The five that edit the list refuse with an `NmtsError` whose `code` is `NOT_FOUND` (nothing at that
 path, or the path names two things), `NAME_TAKEN` (a move, a rename or a restore would land on a name
 already in that folder — nothing is numbered or replaced), `BAD_NAME`, `NOT_IN_TRASH` or
@@ -203,9 +208,8 @@ is not in the browser entry.
 
 ## What this library does not do
 
-- **Sharing, extending a lease, the recovery list.** Use the command-line tool for those
-  (`nmts share`, `nmts extend`, `nmts recovery-list`); this package is built on its library surface
-  and does not duplicate it.
+- **Sharing and the recovery list.** Use the command-line tool for those (`nmts share`,
+  `nmts recovery-list`); this package is built on its library surface and does not duplicate it.
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.

@@ -79,6 +79,24 @@ export type {
 // ⛔ WITHOUT THE PATH. A page has no file paths, so the type a caller writes against here has no
 //    `string` in it and the compiler refuses one; `put` refuses it at run time as well, by name.
 export type { BrowserPutInput as PutInput } from "./put.ts";
+// Storage control: what the account's wallet holds free, buying one file more time, and cutting,
+// joining and handing over a resource. ⛔ Every one of these spends, and `dryRun` is how a caller
+// asks what it would cost without signing.
+export type {
+  ExtendOptions,
+  ExtendResult,
+  ExtendReview,
+  MergeResult,
+  MergeReview,
+  SplitOptions,
+  SplitResult,
+  SplitReview,
+  StorageOpOptions,
+  StorageResourceInfo,
+  StorageWallet,
+  TransferResult,
+  TransferReview,
+} from "./storage.ts";
 export type { GetResult } from "./get.ts";
 export { blobSource } from "./source-blob.ts";
 

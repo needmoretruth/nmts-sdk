@@ -188,12 +188,32 @@ await nmts.move(["a.pdf", "b.pdf"], "archive")   // { moved: [{ from, to }] } �
 await nmts.rename("archive/a.pdf", "first.pdf")  // { from, to }
 await nmts.remove("archive/b.pdf")         // { removed } — to the trash, restorable for 30 days
 await nmts.restore("archive/b.pdf")        // { restored }
+await nmts.erase("old.pdf", { confirm: ERASE_CONFIRM })   // { erased, storage } — for good; nothing undoes it
 await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })
 await nmts.get(path, { maxBytes? })                 // Uint8Array; 256 MiB ceiling unless raised
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
+await nmts.storage()                                // [{ id, sizeBytes, startEpoch, endEpoch, status }] — asks the chain
+await nmts.extend(path, { epochs?, dryRun?, force? })      // more storage time for one file — signs and spends WAL
+await nmts.splitStorage(id, { sizeBytes, dryRun? })        // one storage resource into two
+await nmts.mergeStorage(idA, idB, { dryRun? })             // two into one
+await nmts.transferStorage(id, toAddress, { dryRun? })     // to another wallet — cannot be undone
 
 blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker, a drag or a fetch
 ```
+
+- **Storage control: `storage`, `extend`, `splitStorage`, `mergeStorage`, `transferStorage`.** Storage
+  on Walrus is an object the account's wallet holds, with a size and a period. `storage()` lists the
+  ones the wallet holds that are not bound inside a file. The other four sign with that wallet. With
+  `dryRun: true` each returns a review and signs nothing: `{ wal, sui, wallet: { address, wal, sui },
+  shortfall }` in the units `put()` uses, plus what the act would produce. `sui` is `null` when the
+  fee could not be measured, never 0. Without `dryRun` the call is the agreement, as with `put()`,
+  and it returns the transaction's `digest`. `extend()` spends WAL; splitting, merging and
+  transferring pay the chain fee only, so their reviews leave the balances and `shortfall` `null`.
+  `extend()` refuses a file that is nowhere near its end unless `force: true`. If the purchase
+  succeeds and the server then fails to record the new end, it throws `EXTEND_RECORDED_LATE`: do
+  not call it again, the storage is already bought. With a delegation token `extend()` needs
+  `storage_spend`, and the client reads the token's scope before anything is signed.
+  `transferStorage()` cannot be undone and moves no file: what goes is size and remaining time.
 
 - **`mkdir`, `move`, `rename`, `remove` and `restore` spend nothing.** With a delegation token
   they need the `files_write` scope. `move`, `remove` and `restore` take one path or an array.
@@ -349,9 +369,9 @@ await gateway.listen(9000);                  // 127.0.0.1 unless you pass a host
   it. The ceiling is 16 MiB sealed — about 60,000 files. Past that, use more accounts.
 - **Rate and spend ceilings** exist on the server: one account may spend 4,096 credits (4 GiB) a
   day, and a person must pass the human check every four weeks for the things it gates.
-- **Sharing, extension, the recovery list and erasing for good** are not in this package yet. The
-  [command-line tool](https://github.com/needmoretruth/nmts-cli) has them all, and this package is
-  built on its library surface (`@needmoretruth/nmts-cli`), so they can be reached from there today.
+- **Sharing and the recovery list** are in the
+  [command-line tool](https://github.com/needmoretruth/nmts-cli), not in this package. This package is
+  built on that tool's library surface (`@needmoretruth/nmts-cli`), so they can be reached from there.
 
 
 ## Building from source

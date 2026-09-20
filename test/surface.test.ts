@@ -35,9 +35,11 @@ test("the package exports one class, and its methods are the ones the README sho
   assert.deepEqual(proto.sort(), [
     "account",
     "erase",
+    "extend",
     "get",
     "getTo",
     "list",
+    "mergeStorage",
     "mkdir",
     "move",
     "put",
@@ -45,6 +47,9 @@ test("the package exports one class, and its methods are the ones the README sho
     "rename",
     "restore",
     "setActiveWallet",
+    "splitStorage",
+    "storage",
+    "transferStorage",
     "walletAddress",
     "wallets",
   ]);

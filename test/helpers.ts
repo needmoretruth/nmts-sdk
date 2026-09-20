@@ -29,7 +29,19 @@ export type { Pushed } from "../../cli/test/upload-fixture.ts";
 // The wallet rail's fixtures, also the command-line package's: a chain whose quote is arithmetic a
 // test can predict, and signers that remember every shape they were handed.
 export { fakeReads, recordingSigners, TIP } from "../../cli/test/fake-put-wallet.ts";
-export { FEE_MIST, MAINNET } from "../../cli/test/fake-extend.ts";
+// And the extension's: a storage network whose quote is arithmetic a test can predict, the preview
+// the server sends for a file on its blobs, and two signers — one that answers a digest and
+// remembers what it was asked for, one that fails a test by being called at all.
+export {
+  fakeChain,
+  FEE_MIST,
+  LEASES,
+  MAINNET,
+  preview,
+  recordingSigner,
+  refuseToSign,
+  servePhoto,
+} from "../../cli/test/fake-extend.ts";
 
 /**
  * The seams a WALLET-PAID upload is driven through: a chain whose quote is arithmetic a test can

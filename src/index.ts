@@ -82,6 +82,24 @@ export type {
   WalletPut,
   WalletReview,
 } from "./put.ts";
+// Storage control: what the account's wallet holds free, buying one file more time, and cutting,
+// joining and handing over a resource. ⛔ Every one of these spends, and `dryRun` is how a caller
+// asks what it would cost without signing.
+export type {
+  ExtendOptions,
+  ExtendResult,
+  ExtendReview,
+  MergeResult,
+  MergeReview,
+  SplitOptions,
+  SplitResult,
+  SplitReview,
+  StorageOpOptions,
+  StorageResourceInfo,
+  StorageWallet,
+  TransferResult,
+  TransferReview,
+} from "./storage.ts";
 export type { GetResult } from "./get.ts";
 // Bytes that came from a file picker, a drag, a `fetch` or a canvas. Node has `Blob` too.
 export { blobSource } from "./source-blob.ts";
