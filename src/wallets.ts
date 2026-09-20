@@ -159,6 +159,25 @@ export async function wallets(opened: Opened, reads: WalletReads = {}): Promise<
 }
 
 /**
+ * The Sui address of one of the wallets this account's key derives. Nothing is signed.
+ *
+ * ⛔ WITH NO NUMBER IT IS THE WALLET THE ACCOUNT PAYS FROM, read out of the sealed file list — and
+ *    a list that cannot be read throws rather than answering the first wallet, because coins sent
+ *    to an address nobody chose are coins the account cannot spend. A number names one directly
+ *    and is offline: every number a key can derive already exists.
+ *
+ * ⚠ MOVED OFF THE CLASS ON 2026-09-20, UNCHANGED. `nmts.ts` is at the length gate and this is a
+ *   whole answer rather than a line of plumbing, so it pays for what wallet sign-in added there.
+ */
+export async function addressOfWallet(opened: Opened, index: number | undefined): Promise<string> {
+  if (index !== undefined) {
+    const wanted = requireWalletIndex(index);
+    return opened.root.withCode(async (code) => walletAddress(code, wanted));
+  }
+  return withAccount(opened, async (held) => walletAddress(held.code, await payingWallet(held)));
+}
+
+/**
  * Say which of this key's wallets pays for storage from now on, on this account rather than on
  * this machine.
  *

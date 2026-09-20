@@ -56,6 +56,10 @@ export type {
   ScopeName,
 } from "./business.ts";
 export type { Entry, ListOptions } from "./list.ts";
+// Wallet sign-in. ⛔ Attaching a wallet lets whoever holds it open every file in the account, from
+// any machine, until it is removed; on a managed root these refuse by name, because a business's
+// own sealed store is already that road.
+export type { AttachedWallet, OpenerInfo, Openers, SignWallet, WalletCredentials, WalletInput } from "./openers.ts";
 // Erasing for good. ⛔ The sentence is a VALUE and not only a type: a caller writes
 // `confirm: ERASE_CONFIRM`, and that it is visible in the call is the whole safety of it.
 export { ERASE_CONFIRM } from "./erase.ts";

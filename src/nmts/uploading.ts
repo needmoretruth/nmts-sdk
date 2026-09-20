@@ -1,4 +1,8 @@
-// The two things `put` needs before it can start: where the bytes come from, and which rail pays.
+// What `put` does before it can start: where the bytes come from, and which rail pays.
+//
+// ⚠ `putVia` MOVED OFF THE CLASS ON 2026-09-20, unchanged. `nmts.ts` is at the length gate and the
+//   method there is one line calling this; what it decides — which money, before anything is read
+//   — is written here, in the file that already holds both rails.
 
 import {
   createBlobProtocol,
@@ -8,9 +12,36 @@ import {
 } from "@needmoretruth/nmts-cli/portable";
 
 import { nodeSeams } from "../node-seams.ts";
-import { bytesSource, nameOf, type PutInput, type PutOptions, type UploadRail } from "../put.ts";
+import {
+  bytesSource,
+  nameOf,
+  putSource,
+  type PutInput,
+  type PutOptions,
+  type PutResult,
+  type PutReview,
+  type UploadRail,
+} from "../put.ts";
+import { putSourceWithWallet } from "../put-wallet.ts";
 import type { Opened } from "../session.ts";
 import { blobSource } from "../source-blob.ts";
+
+/**
+ * One upload, on whichever rail pays for it.
+ *
+ * ⛔ WHICH MONEY IS DECIDED BEFORE ANYTHING IS READ, as the command-line tool decides it. The
+ *    credit rail cannot price in WAL or sign a transaction, and it must not learn.
+ */
+export async function putVia(
+  opened: Opened,
+  file: PutInput | Uint8Array,
+  options: PutOptions,
+): Promise<PutResult | PutReview> {
+  const { source, name: own } = sourceOf(file);
+  const name = options.name ?? own;
+  if (options.pay === "wallet") return putSourceWithWallet(opened, source, name, options);
+  return putSource(opened, source, name, options, (sealedBytes) => creditRail(opened, sealedBytes, options));
+}
 
 /**
  * The bytes an upload will read, and the name they came with.

@@ -19,6 +19,7 @@
 
 import {
   businessPublicKey,
+  host,
   mintDelegation,
   newAccountCode,
   NmtsError,
@@ -125,8 +126,22 @@ export interface EmbeddedRegistration extends BusinessOptions {
  *
  * ⛔ IT DOES NO WORK UNTIL IT IS CALLED, exactly as `Nmts` does none: making one is free, and a
  *    key that is not one fails on the first call, where a caller can act on it.
+ *
+ * ⛔ AND IT REFUSES IN A PAGE, BY NAME. A business's signing key in a page is that key handed to
+ *    everyone who opens it; what a page holds is a delegation token signed on the business's own
+ *    machine. ⚠ The check moved here from `Nmts.business()` on 2026-09-20 — that file is at the
+ *    length gate — and a rule that lives beside the thing it guards cannot be left behind by a
+ *    second caller.
  */
 export function businessClient(credentials: BusinessCredentials & BusinessOptions): Business {
+  if (host().name === "browser") {
+    throw new NmtsError("BUSINESS_IN_A_PAGE: a business's signing key does not belong in a browser.", {
+      exitCode: 2,
+      nextStep:
+        "Nothing was sent. Sign on your own server and hand the page a delegation token — " +
+        "`Nmts.device({ accountCode, delegation })` is what a page uses.",
+    });
+  }
   const { accountId, privateKey } = credentials;
   const server = resolveServer(credentials.server);
 

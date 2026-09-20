@@ -53,6 +53,10 @@ export type {
   ScopeName,
 } from "./business.ts";
 export type { Entry, ListOptions } from "./list.ts";
+// Wallet sign-in. ⛔ Attaching a wallet lets whoever holds it open every file in the account, from
+// any machine, until it is removed; on a managed root these refuse by name, because a business's
+// own sealed store is already that road.
+export type { AttachedWallet, OpenerInfo, Openers, SignWallet, WalletCredentials, WalletInput } from "./openers.ts";
 // Erasing for good — the same verb in a page, and nothing about it reaches for a file or a path.
 export { ERASE_CONFIRM } from "./erase.ts";
 export type { EraseOptions, EraseResult, EraseStorage } from "./erase.ts";

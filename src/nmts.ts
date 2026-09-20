@@ -22,14 +22,7 @@
 //   the gateway import: the option shapes, the weak map the gateway reads a client's account out
 //   of, and the two things `put` needs before it starts.
 
-import {
-  host,
-  newAccountCode,
-  NmtsError,
-  registrationProofOf,
-  walletAddress,
-  type ReadOptions,
-} from "@needmoretruth/nmts-cli/portable";
+import { newAccountCode, registrationProofOf, type ReadOptions } from "@needmoretruth/nmts-cli/portable";
 
 import {
   businessClient,
@@ -42,6 +35,7 @@ import {
 import { eraseForGood, type EraseOptions, type EraseResult } from "./erase.ts";
 import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getTo, type GetResult } from "./get.ts";
 import { listEntries, type Entry, type ListOptions } from "./list.ts";
+import { credentialsFromWallet, openersOn, type Openers, type WalletCredentials } from "./openers.ts";
 import { rememberInsides } from "./nmts/insides.ts";
 import {
   optionsOf,
@@ -52,7 +46,7 @@ import {
   type NmtsOptions,
   type WalletAddressOptions,
 } from "./nmts/options.ts";
-import { creditRail, sourceOf } from "./nmts/uploading.ts";
+import { putVia } from "./nmts/uploading.ts";
 import { nodeSeams } from "./node-seams.ts";
 import {
   makeFolderAt,
@@ -66,25 +60,11 @@ import {
   type RenameResult,
   type RestoreResult,
 } from "./organise.ts";
-import {
-  putSource,
-  type PutInput,
-  type PutOptions,
-  type PutResult,
-  type PutReview,
-} from "./put.ts";
-import { putSourceWithWallet } from "./put-wallet.ts";
+import type { PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
 import * as storageControl from "./storage.ts";
 import { openAccount, withAccount, type Opened } from "./session.ts";
-import {
-  payingWallet,
-  requireWalletIndex,
-  setActiveWallet,
-  wallets,
-  type ActiveWallet,
-  type WalletInfo,
-} from "./wallets.ts";
+import { addressOfWallet, setActiveWallet, wallets, type ActiveWallet, type WalletInfo } from "./wallets.ts";
 
 // The shapes a caller hands in and gets back, and the door this package's own Node-only modules
 // read a client's opened account through. Both entry points and the gateway import them from here.
@@ -139,15 +119,20 @@ export class Nmts {
    *   engine, so there is nothing here for the others to mean.
    */
   static business(credentials: BusinessCredentials & NmtsOptions): Business {
-    if (host().name === "browser") {
-      throw new NmtsError("BUSINESS_IN_A_PAGE: a business's signing key does not belong in a browser.", {
-        exitCode: 2,
-        nextStep:
-          "Nothing was sent. Sign on your own server and hand the page a delegation token — " +
-          "`Nmts.device({ accountCode, delegation })` is what a page uses.",
-      });
-    }
     return businessClient({ accountId: credentials.accountId, privateKey: credentials.privateKey, server: credentials.server });
+  }
+
+  /**
+   * A device client whose account is opened by a WALLET rather than by a code somebody typed.
+   *
+   * The wallet signs one fixed message; that signature names the sealed slot holding this
+   * account's key and is the only thing that opens it. What comes back is an ordinary device
+   * client — the key is in this process exactly as `Nmts.device()`'s is, and whoever holds the
+   * wallet holds the account. `account` picks which of that wallet's accounts (default 1) and
+   * `app` scopes the signature to one product; both are inside what the person signs.
+   */
+  static async fromWallet(input: WalletCredentials & NmtsOptions): Promise<Nmts> {
+    return new Nmts(deviceRoot(await credentialsFromWallet(input)), optionsOf(input));
   }
 
   /**
@@ -228,13 +213,20 @@ export class Nmts {
    * directly and is offline — numbers come from the key, so every one of them already exists.
    */
   async walletAddress(options: WalletAddressOptions = {}): Promise<string> {
-    const opened = this.#account();
-    const asked = options.index;
-    if (asked !== undefined) {
-      const index = requireWalletIndex(asked);
-      return opened.root.withCode(async (code) => walletAddress(code, index));
-    }
-    return withAccount(opened, async (held) => walletAddress(held.code, await payingWallet(held)));
+    return addressOfWallet(this.#account(), options.index);
+  }
+
+  /**
+   * The wallets that open this account: which they are, attaching one, taking one off, and the
+   * sealed copy of one that the recovery tool opens with a signature.
+   *
+   * ⛔ ATTACHING ONE LETS WHOEVER HOLDS THAT WALLET OPEN EVERY FILE IN THIS ACCOUNT, from any
+   *    machine, until it is removed — and removal is "from now on", not "as if it never knew".
+   *    On a managed root these refuse by name: where the business holds the key, its own sealed
+   *    store is already that road.
+   */
+  get openers(): Openers {
+    return openersOn(this.#account());
   }
 
   /**
@@ -347,13 +339,7 @@ export class Nmts {
   async put(file: PutInput | Uint8Array, options: PutOptions & { dryRun: true }): Promise<PutReview>;
   async put(file: PutInput | Uint8Array, options?: PutOptions): Promise<PutResult>;
   async put(file: PutInput | Uint8Array, options: PutOptions = {}): Promise<PutResult | PutReview> {
-    const opened = this.#account();
-    const { source, name: own } = sourceOf(file);
-    const name = options.name ?? own;
-    // ⛔ WHICH MONEY IS DECIDED BEFORE ANYTHING IS READ, as the command-line tool decides it. The
-    //    credit rail below cannot price in WAL or sign a transaction, and it must not learn.
-    if (options.pay === "wallet") return putSourceWithWallet(opened, source, name, options);
-    return putSource(opened, source, name, options, (sealedBytes) => creditRail(opened, sealedBytes, options));
+    return putVia(this.#account(), file, options);
   }
 
   /** Every free storage resource the paying wallet holds, usable first. Nothing is spent. */

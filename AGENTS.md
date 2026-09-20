@@ -188,6 +188,42 @@ both to the person.
 both numbers when the wallet cannot cover it. A real `put()` in that state throws rather than
 signing.
 
+## Wallet login
+
+```js
+const nmts = await Nmts.fromWallet({ sign, address, apiKey });   // or `delegation` in place of apiKey
+```
+
+Opens an account with a Sui wallet instead of a typed NMTS key. The wallet signs one fixed message;
+that signature finds and opens a copy of the account's NMTS key that the NMTS server keeps locked.
+NMTS cannot open the copy and does not learn which wallet it belongs to. What comes back is an
+ordinary device client: every method works.
+
+`sign(messageBytes)` answers what the wallet standard answers — `{ signature, bytes }`, or the
+serialized signature alone. In a page that is dapp-kit's `useSignPersonalMessage()`. `account`
+(default 1) picks which of that wallet's accounts, and `app` makes a key for your product only; both
+are inside the signed message. Without `app`, one wallet opens the same account in every product
+that asks — say which you chose to your users.
+
+| Call | What it does |
+|---|---|
+| `nmts.openers.list()` | `{ locator, kind, createdAt }[]` — the wallets that open this account |
+| `nmts.openers.addWallet({ sign, address, account?, app? })` | attaches a wallet. It is asked to sign **twice**, and the call refuses with `WALLET_NOT_REPEATABLE` unless the two signatures are the same bytes |
+| `nmts.openers.remove(locator)` | that wallet stops opening the account from then on. A wallet that opened it before has held the NMTS key |
+| `nmts.openers.exportSlot(locator)` | the 62 locked bytes, as a `Uint8Array` — the wallet recovery file the NMTS recovery program opens with a signature, with no server |
+
+A new account is made as before (`Nmts.newAccountCode()`, then `registerWithDelegation`), and the
+wallet is attached with `addWallet`. A wallet that signs the same message differently each time is
+refused by name: `WALLET_ZKLOGIN`, `WALLET_MULTISIG`, `WALLET_PASSKEY`, `WALLET_UNKNOWN_SCHEME`. A
+signature over other bytes than the ones this library built is refused with
+`WALLET_SIGNED_OTHER_BYTES`. On a managed client `openers` refuses with `NOT_FOR_MANAGED_ROOT`: your
+own store is what opens that account. An account can have up to eight openers (`OPENER_CAP`), and a
+wallet that already opens this account or another one at the same account number is refused with
+`WALLET_ALREADY_ATTACHED` or `WALLET_OPENS_ANOTHER_ACCOUNT`.
+
+The signature opens the account. This library hands it to the encryption engine and keeps no copy;
+do the same in your `sign`.
+
 ## The S3 gateway
 
 `@needmoretruth/nmts-sdk/gateway` exports `createS3Gateway({ credentials, bucket, write?,

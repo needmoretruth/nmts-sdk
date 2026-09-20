@@ -42,6 +42,9 @@ test("the package exports one class, and its methods are the ones the README sho
     "mergeStorage",
     "mkdir",
     "move",
+    // ⚠ A GETTER RATHER THAN A METHOD, and it is on this list for the same reason the methods are:
+    //   `nmts.openers` is part of what the README promises, and a promise nothing checks drifts.
+    "openers",
     "put",
     "remove",
     "rename",
