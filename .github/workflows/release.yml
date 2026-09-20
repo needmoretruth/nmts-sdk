@@ -130,16 +130,13 @@ jobs:
   # repository variable rather than a code change: set `PUBLISH_TO_NPM` to `true` in this
   # repository's settings, on the day the registry side is ready, and the next tag goes out.
   #
-  # ⛔ THE REGISTRY SIDE IS NOT SET UP FROM HERE AND CANNOT BE. "Trusted publishing" is configured
-  #    on the package's own page in the registry, by the account that owns the scope — naming this
-  #    repository and this workflow file — and that account is the owner's. Nothing in this
-  #    repository can do it, check it, or tell whether it has been done; the first tag after it is
-  #    switched on is what says so. Until then this job is skipped.
-  #
-  # ⛔ NO LONG-LIVED TOKEN LIVES IN THIS REPOSITORY. When it is switched on, publishing
-  #    authenticates with a short-lived OpenID Connect credential the run mints for itself, which
-  #    the registry accepts only for this repository and this workflow file. A stolen repository
-  #    secret is a thing that can be stolen; there is none here.
+  # HOW IT AUTHENTICATES: with an npm access token held as the repository secret `NPM_TOKEN`
+  #    (granular, publish-only). Trusted publishing (a short-lived credential the run mints for
+  #    itself) was the first choice and stayed unconfigured on the registry side, so every tagged
+  #    release through 0.6.0 was published by hand and this job failed beside it. A token the
+  #    maintainer already holds is the door that is actually open. A repository secret is a thing
+  #    that can be stolen, so the token is scoped as narrowly as the registry allows and can be
+  #    revoked there at any time.
   #
   # WHAT `--provenance` ADDS: the registry records, and shows on the package page, which repository
   # and which workflow run produced these bytes. It says where the package came from. It does not
@@ -151,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Required to mint the short-lived credential described above, and for provenance.
+      # Provenance needs the run to mint a short-lived identity; publishing itself uses the token.
       id-token: write
     steps:
       - uses: actions/checkout@v7
@@ -161,12 +158,22 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      # Trusted publishing needs a recent npm; the one bundled with the runner's Node may be older.
+      # Provenance needs a recent npm; the one bundled with the runner's Node may be older.
       - name: A recent npm
         run: npm install -g npm@latest
 
       - name: Install
         run: npm install
 
+      # A version already in the registry was published by hand; saying so is not a failure.
       - name: Publish
-        run: npm publish --provenance --access public
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already in the registry; nothing to publish."
+            exit 0
+          fi
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
