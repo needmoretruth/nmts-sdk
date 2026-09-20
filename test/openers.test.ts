@@ -107,6 +107,22 @@ test("a client made from a wallet speaks with whichever credential it was given"
       network: "testnet",
     });
     assert.deepEqual(await opened.account(), await nmts.account());
+
+    // ⛔ ON A DEVICE THAT HAS NEVER SEEN THIS ACCOUNT the page cannot name the user a token is for
+    //    until the wallet has opened the account — so the token may be a function of that id.
+    const askedFor: string[] = [];
+    const late = await Nmts.fromWallet({
+      ...signer,
+      delegation: (user) => {
+        askedFor.push(user);
+        return token.kind === "delegation" ? token.token : "";
+      },
+      server: drive.base,
+      network: "testnet",
+    });
+    assert.deepEqual(askedFor, [await Nmts.accountIdOf(code)]);
+    assert.deepEqual(await late.account(), await nmts.account());
+
     await opened.openers.remove(attached.locator);
     assert.ok(openerState.calls.at(-1)?.bearer?.startsWith("nmts_dt1_"), "the removal dropped the token");
   });

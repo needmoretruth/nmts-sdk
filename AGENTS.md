@@ -205,6 +205,17 @@ serialized signature alone. In a page that is dapp-kit's `useSignPersonalMessage
 are inside the signed message. Without `app`, one wallet opens the same account in every product
 that asks — say which you chose to your users.
 
+With a delegation token, `delegation` may also be a function. A token is signed for one account id,
+and a device that has never seen the account cannot know that id until the wallet has opened it; the
+function receives the opened account's public id and answers the token:
+
+```js
+const nmts = await Nmts.fromWallet({
+  sign, address, app: "your-product",
+  delegation: (user) => fetch(`/nmts-token?user=${user}`).then((r) => r.text()),
+});
+```
+
 | Call | What it does |
 |---|---|
 | `nmts.openers.list()` | `{ locator, kind, createdAt }[]` — the wallets that open this account |

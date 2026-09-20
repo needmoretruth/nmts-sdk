@@ -74,7 +74,15 @@ export interface WalletInput {
 /** What `Nmts.fromWallet()` takes: a wallet, and the credential the server answers to. */
 export interface WalletCredentials extends WalletInput {
   apiKey?: string | undefined;
-  delegation?: string | undefined;
+  /**
+   * The business's token for this user — or a function that fetches it once the account is open.
+   *
+   * ⛔ WHY A FUNCTION. A delegation token is signed for ONE account id, and on a device that has
+   *    never seen this account the page cannot know that id until the wallet has opened it. The
+   *    function is called with the opened account's public id (what `Nmts.accountIdOf` gives) and
+   *    answers the token — typically one request to the business's own server.
+   */
+  delegation?: string | ((user: string) => string | Promise<string>) | undefined;
   server?: string | undefined;
   network?: string | undefined;
 }
@@ -121,9 +129,12 @@ export async function credentialsFromWallet(input: WalletCredentials): Promise<C
   const { accountCode } = await signInWithWallet(resolveServer(input.server), openerOf(input));
   // ⚠ A blank credential stays blank rather than becoming the other kind: the refusal a later call
   //   makes should name the credential that was asked for, not the one that was not.
-  return input.delegation === undefined
-    ? { accountCode, apiKey: input.apiKey ?? "" }
-    : { accountCode, delegation: input.delegation };
+  if (input.delegation === undefined) return { accountCode, apiKey: input.apiKey ?? "" };
+  const delegation =
+    typeof input.delegation === "function"
+      ? await input.delegation((await registrationProofOf(accountCode)).accountId)
+      : input.delegation;
+  return { accountCode, delegation };
 }
 
 /** The four verbs, over one opened account. */
