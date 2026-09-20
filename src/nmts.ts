@@ -39,6 +39,7 @@ import {
   type EmbeddedRegistration,
   type RegisteredUser,
 } from "./business.ts";
+import { eraseForGood, type EraseOptions, type EraseResult } from "./erase.ts";
 import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getTo, type GetResult } from "./get.ts";
 import { listEntries, type Entry, type ListOptions } from "./list.ts";
 import { rememberInsides } from "./nmts/insides.ts";
@@ -313,6 +314,22 @@ export class Nmts {
    */
   async restore(paths: string | readonly string[]): Promise<RestoreResult> {
     return restoreFromTrash(this.#account(), paths);
+  }
+
+  /**
+   * Erase files for good. **Nothing undoes this** — not the trash, not this package, not us.
+   *
+   * What goes is the server's record of each file, this account's key to it, and its entry in the
+   * sealed list; a folder erases every file under it. `confirm` must be `ERASE_CONFIRM`, character
+   * for character, so the code that erases somebody's files says so where it is written — anything
+   * else refuses with `ERASE_NOT_CONFIRMED` and sends nothing.
+   *
+   * `releaseStorage: true` also destroys the storage bought with CREDITS under each file, on the
+   * chain, before erasing it; storage bought by the account's own wallet is never touched, and
+   * what happened to each file's storage comes back in `storage`.
+   */
+  async erase(paths: string | readonly string[], options: EraseOptions): Promise<EraseResult> {
+    return eraseForGood(this.#account(), paths, options);
   }
 
   /**

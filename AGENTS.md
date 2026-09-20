@@ -24,8 +24,8 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are thirteen: `account`, `walletAddress`, `wallets`,
-`setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`, `restore`, plus the statics `device`, `managed` and `fromEnv`
+method that is not in `dist/index.d.ts`. There are fourteen: `account`, `walletAddress`, `wallets`,
+`setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`, `restore`, `erase`, plus the statics `device`, `managed` and `fromEnv`
 that make a client.
 
 | | What it does | Where it comes from |
@@ -62,9 +62,12 @@ browser) opens accounts for the users of its own product and signs for them.
 | `Nmts.business({ accountId, privateKey })` | nothing | server-side only; in a page it throws `BUSINESS_IN_A_PAGE` |
 | `business.info()` | one signed request | `usersToday` and `usersDayCap`; past the cap the server answers `PLATFORM_USER_CAP` with `Retry-After` |
 | `business.registerUser()` | one signed request | returns the new `accountCode` once — store it sealed, never log it |
-| `business.delegate({ user, scope, ttlSecs })` | nothing | a token for one user; at most 30 days; scopes `files_read` · `files_write` · `storage_spend` · `register` |
+| `business.delegate({ user, scope, ttlSecs })` | nothing | a token for one user; at most 30 days; scopes `files_read` · `files_write` · `storage_spend` · `register` · `files_erase` |
 | `business.rotateKey(newPrivateKey)` | one signed request | every token the old key signed stops working at once — ask the person first |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | one request | the device opens its own account; the token must carry `register` |
+
+`erase()` needs the scope `files_erase`; `files_write` alone answers `DELEGATION_SCOPE`. The server also asks
+for the NMTS key's proof on that request, which the client makes from the key it holds.
 
 A delegation token takes the place of `apiKey` in `Nmts.device()` and `Nmts.managed()`. It cannot
 delete the account, make API keys or reach the key that opens the files (`DELEGATION_SCOPE`), and
@@ -128,6 +131,7 @@ of them is one.
 | `move(paths, toFolder)` | nothing | server | Moves files or folders into a folder; `"/"` is the top. `{ moved: [{ from, to }] }` |
 | `rename(path, name)` | nothing | server | A new name in the same folder. `{ from, to }` |
 | `remove(paths)` | nothing | server | To the trash, restorable for 30 days; a folder takes everything under it. Not erasure: the file keeps its storage. `{ removed }` |
+| `erase(paths, { confirm, releaseStorage? })` | nothing | server | ⛔ **Permanent.** Erases the server's record, this account's key to the file and its list entry; a folder erases every file under it. `confirm` must be `ERASE_CONFIRM` ("I UNDERSTAND THIS IS PERMANENT") word for word, or nothing is sent (`ERASE_NOT_CONFIRMED`). Ask the person before you write that call, every time. `{ erased, storage }` |
 | `restore(paths)` | nothing | server | Back out of the trash. `{ restored }` |
 | `put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`. `wallet`, `epochs` and `storage` are refused without `pay: "wallet"` |
 | `get(path, { maxBytes? })` | nothing | server + storage network | Whole file in memory, checked first. Refuses over 256 MiB unless raised — use `getTo` |
@@ -199,10 +203,9 @@ is not in the browser entry.
 
 ## What this library does not do
 
-- **Sharing, extending a lease, the recovery list, erasing a file for good.** Use the command-line
-  tool for those (`nmts share`, `nmts extend`, `nmts recovery-list`, `nmts erase`); this package is
-  built on its library surface and does not duplicate it. `remove()` is the trash, and erasing for
-  good is a person's act there.
+- **Sharing, extending a lease, the recovery list.** Use the command-line tool for those
+  (`nmts share`, `nmts extend`, `nmts recovery-list`); this package is built on its library surface
+  and does not duplicate it.
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.

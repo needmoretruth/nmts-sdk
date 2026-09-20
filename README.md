@@ -202,8 +202,16 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
   path names two things), `BAD_NAME` (empty, or a `/` in a name), `NOT_IN_TRASH` and `INTO_ITSELF`
   (a folder moved inside itself).
 - **`remove()` is the trash, not erasure.** A folder takes everything under it, and a removed file
-  keeps its storage. Erasing a file for good is the command-line tool's `nmts erase`, which a person
-  confirms by typing a sentence; no call in this package does it.
+  keeps its storage.
+- **`erase(paths, { confirm: ERASE_CONFIRM })` erases files for good**, and nothing undoes it: the
+  server's record of each file, this account's key to it, and its entry in the file list. A folder
+  erases every file under it. `confirm` has to be the exported sentence `ERASE_CONFIRM`
+  ("I UNDERSTAND THIS IS PERMANENT") word for word — there is no `true` that stands for it, so the
+  code that erases somebody's files says so where it is written. Without it nothing is sent and the
+  call refuses with `ERASE_NOT_CONFIRMED`. With `releaseStorage: true` the storage under files paid
+  for with credits is destroyed first, and `storage` reports each file; a file whose release failed
+  is left whole. Storage bought from the wallet stays on Walrus until its term ends. It returns
+  `{ erased, storage }`.
 
 - **`put()` takes** a path (`"./report.pdf"`, Node only), bytes (`{ name, bytes }`), or a `Blob`
   (`{ name, blob }`). A bare `Uint8Array` works too, with `name` in the options.
@@ -284,7 +292,10 @@ const token = await business.delegate({
 | `Nmts.newAccountCode()` · `Nmts.accountIdOf(code)` | the device | a new NMTS key, and its public id; nothing is sent |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | the device | opens the device's own account with a token that carries `register` |
 
-Scopes are `files_read`, `files_write`, `storage_spend` and `register`. A delegation token takes the
+Scopes are `files_read`, `files_write`, `storage_spend`, `register` and `files_erase`. `erase()` needs
+`files_erase`; `files_write` alone is refused. The server also asks for the NMTS key's own proof on
+that request, which the client makes from the key it holds — so erasing through a token takes the
+business's permission and the key holder's act together. A delegation token takes the
 place of `apiKey` in `Nmts.device()` and `Nmts.managed()`, and every method works with it. It
 cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
 those with `DELEGATION_SCOPE`.

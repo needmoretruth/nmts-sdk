@@ -34,6 +34,7 @@ test("the package exports one class, and its methods are the ones the README sho
   for (const name of shown) assert.ok(proto.includes(name), `README calls nmts.${name}() and the class has no such method`);
   assert.deepEqual(proto.sort(), [
     "account",
+    "erase",
     "get",
     "getTo",
     "list",

@@ -53,6 +53,9 @@ export type {
   ScopeName,
 } from "./business.ts";
 export type { Entry, ListOptions } from "./list.ts";
+// Erasing for good — the same verb in a page, and nothing about it reaches for a file or a path.
+export { ERASE_CONFIRM } from "./erase.ts";
+export type { EraseOptions, EraseResult, EraseStorage } from "./erase.ts";
 // Folders, moving, renaming and the trash: what the five verbs answer.
 export type {
   MkdirResult,

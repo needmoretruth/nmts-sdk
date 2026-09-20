@@ -19,6 +19,10 @@ export type { FakeDrive } from "../../cli/test/fake-drive.ts";
 // The Platform's business doors, answered by that same server. It rebuilds the signed sentence
 // from the wire, so a client that signed the wrong path, method or body is refused here as well.
 export { platformState, resetPlatform } from "../../cli/test/fake-platform.ts";
+// The two permanent doors, answered by that same server: erasing rows for good, and destroying the
+// treasury's storage under a file. ⚠ Both refuse a credential that arrives without the account
+// code's proof, exactly as the real server does — so a verb that forgot it cannot pass here.
+export { eraseState } from "../../cli/test/fake-erase.ts";
 export { generateCode, sealFile, sealFileList, type SealedFile } from "../../cli/test/helpers.ts";
 export { apiThat, protocolThat, isolate } from "../../cli/test/upload-fixture.ts";
 export type { Pushed } from "../../cli/test/upload-fixture.ts";

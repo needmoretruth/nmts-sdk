@@ -56,6 +56,10 @@ export type {
   ScopeName,
 } from "./business.ts";
 export type { Entry, ListOptions } from "./list.ts";
+// Erasing for good. ⛔ The sentence is a VALUE and not only a type: a caller writes
+// `confirm: ERASE_CONFIRM`, and that it is visible in the call is the whole safety of it.
+export { ERASE_CONFIRM } from "./erase.ts";
+export type { EraseOptions, EraseResult, EraseStorage } from "./erase.ts";
 // Folders, moving, renaming and the trash: what the five verbs answer.
 export type {
   MkdirResult,

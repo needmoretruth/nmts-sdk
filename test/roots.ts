@@ -63,7 +63,10 @@ const DELEGATION_TOKEN = mintDelegation({
   business: toBase64Url(new Uint8Array(16).fill(1)),
   user: toBase64Url(new Uint8Array(16).fill(2)),
   privateKey: BUSINESS.privateKey,
-  scope: ["files_read", "files_write", "storage_spend"],
+  // ⛔ EVERY SCOPE A VERB IN THIS PACKAGE NEEDS, `files_erase` included: the registry's job is to
+  //    prove a verb works through this root, and a token that could not reach one of them would
+  //    make that verb's delegation row a test of the scope rather than of the verb.
+  scope: ["files_read", "files_write", "storage_spend", "files_erase"],
   ttlSecs: 3_600,
 });
 
