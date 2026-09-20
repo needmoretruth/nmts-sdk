@@ -114,11 +114,13 @@ export class Nmts {
    *    runtime: a business's signing key in a page is that key handed to everyone who opens it. A
    *    page holds a delegation token; the key stays on the business's own server.
    *
-   * ⚠ OF THE OPTIONS, ONLY `server` IS READ, and the rest are taken so that one options object can
-   *   be handed to both clients. No Platform door touches a chain, the storage network or the
-   *   engine, so there is nothing here for the others to mean.
+   * ⚠ OF THE ADDRESSES, ONLY `server` MEANS ANYTHING, and the rest are taken so that one options
+   *   object can be handed to both clients. No Platform door touches a chain, the storage network
+   *   or the engine. ⛔ `fetch` IS THE EXCEPTION AND IT IS READ: these doors make requests, and a
+   *   business that routes its traffic through a proxy must not have this one road round it.
    */
   static business(credentials: BusinessCredentials & NmtsOptions): Business {
+    useOptions(optionsOf(credentials));
     return businessClient({ accountId: credentials.accountId, privateKey: credentials.privateKey, server: credentials.server });
   }
 
@@ -132,6 +134,9 @@ export class Nmts {
    * `app` scopes the signature to one product; both are inside what the person signs.
    */
   static async fromWallet(input: WalletCredentials & NmtsOptions): Promise<Nmts> {
+    // ⛔ BEFORE THE FIRST REQUEST, not in the constructor below: finding the slot is a request, and
+    //    it went round the caller's `fetch` (found 2026-09-20 by signing in through Tor).
+    useOptions(optionsOf(input));
     return new Nmts(deviceRoot(await credentialsFromWallet(input)), optionsOf(input));
   }
 
@@ -160,6 +165,7 @@ export class Nmts {
    * taken — so the business that signed the token never sees it.
    */
   static registerWithDelegation(options: EmbeddedRegistration & NmtsOptions): Promise<RegisteredUser> {
+    useOptions(optionsOf(options));
     return registerWithDelegation({
       accountCode: options.accountCode,
       delegation: options.delegation,

@@ -149,7 +149,11 @@ already in that folder — nothing is numbered or replaced), `BAD_NAME`, `NOT_IN
 `INTO_ITSELF`. With a delegation token all five need `files_write`. Do not retry a refusal; read
 `nextStep`.
 
-`options` is `{ server?, network?, aggregators?, relay?, suiRpc?, onProgress?, wasmUrl? }`.
+`options` is `{ server?, network?, aggregators?, relay?, suiRpc?, fetch?, onProgress?, wasmUrl? }`.
+`aggregators` (list), `relay` (one host) and `suiRpc` (one host or a list) replace the network's own
+hosts on Node and in a page. `fetch` is the function every request goes through — the NMTS server,
+the relay, the aggregators, the Sui nodes — and is where a person's proxy goes. All four are one per
+process: the last client that names one sets it for every client.
 Paths are as `list()` prints them: `photos/2026/cat.jpg`.
 
 In a browser, import `@needmoretruth/nmts-sdk/browser`: the same names and the same class, with a
@@ -255,8 +259,9 @@ is not in the browser entry.
 
 ## What this library does not do
 
-- **Sharing and the recovery list.** Use the command-line tool for those (`nmts share`,
-  `nmts recovery-list`); this package is built on its library surface and does not duplicate it.
+- **Sharing and the recovery list.** They exist as commands of the command-line tool (`nmts share`,
+  `nmts recovery-list`) and are not library calls yet, in this package or in that one. Run the
+  commands; do not look for an import.
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.

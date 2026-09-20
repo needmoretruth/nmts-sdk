@@ -93,6 +93,9 @@ Runnable files in [`examples/`](examples/), one per shape:
 | Node, managed | `node-managed/server.mjs` | a service holding its customers' keys in a store of its own, `openCode` once per call |
 | Node, S3 gateway | `gateway/server.mjs` | a bucket and a key pair per customer, so a Django or Rails storage adapter, rclone or a backup tool stores into that customer's account |
 
+Products one person or a small team could build on this, each with the calls it uses and what is not
+in the library yet: [IDEAS.md](IDEAS.md).
+
 ## The two credentials
 
 | | What it does | Where it comes from |
@@ -174,7 +177,8 @@ Nmts.managed({ openCode, apiKey, ...options })     // the NMTS key is in your st
 Nmts.fromEnv(options)                              // device, from the environment — Node only
 new Nmts(root, options)                            // a root you built yourself
 
-// options: { server?, network?, aggregators?, relay?, suiRpc?, onProgress?, wasmUrl? }
+// options: { server?, network?, aggregators?, relay?, suiRpc?, fetch?, onProgress?, wasmUrl? }
+//          — where each one points and what `fetch` is for: "Where it connects" below
 
 await nmts.account()          // { accountId, server, network } — offline
 await nmts.walletAddress()    // the Sui address of the wallet this account pays from
@@ -401,6 +405,45 @@ await gateway.listen(9000);                  // 127.0.0.1 unless you pass a host
   gateway's own under the system's temporary directory, readable by your user alone, which `close()`
   removes. `log` gets one line per answered request — method, bucket and status, never a file name.
 
+## Where it connects, and through what
+
+| It talks to | For | Without an option | Option |
+|---|---|---|---|
+| The NMTS server | the account's records: the file list, credits, keys that wrap keys | `https://nmts.me` | `server` |
+| Walrus aggregators | reading stored bytes | the network's public aggregators | `aggregators` — a list |
+| The Walrus upload relay | writing stored bytes | the network's relay | `relay` — one host |
+| Sui nodes (JSON-RPC) | the chain: paying, extending, storage resources | public nodes, tried in order | `suiRpc` — one host or a list |
+
+A list you give replaces the network's own: nothing you did not name is tried. `relay` and `suiRpc`
+take effect on Node and in a page alike (before 0.9.0 they were read only in a page).
+
+`fetch` is the function every one of those requests goes through, including the ones the Walrus and
+Sui client libraries make. It is where a proxy goes. This package carries no proxy code of its own:
+
+```js
+// npm install undici — an HTTP proxy, or Tor's own HTTP tunnel (`HTTPTunnelPort 9080` in torrc)
+import { fetch as undiciFetch, ProxyAgent } from "undici";
+
+const dispatcher = new ProxyAgent("http://127.0.0.1:9080");
+const nmts = Nmts.device({
+  accountCode, apiKey,
+  fetch: (url, init) => undiciFetch(url, { ...init, dispatcher }),
+});
+```
+
+Checked on 2026-09-20 with Tor 0.4.9 and undici 8 on Node 24: with the runtime's own `fetch`
+replaced by a function that throws, a wallet sign-in reached nmts.me through the tunnel and nothing
+else was called. Whether the public Walrus relay and the public Sui nodes accept a Tor exit is theirs
+to decide — name your own with `relay` and `suiRpc` if they refuse.
+
+Two things to know before relying on it:
+
+- **These choices are one per process, not one per client.** The last client that names an option
+  sets it for every client in the process, so two clients cannot use two different proxies.
+- **In a page, two one-time downloads do not go through `fetch`:** the engine's WebAssembly file
+  (`wasmUrl`) and the zstd encoder's. They are static files and carry nothing about an account.
+  On Node neither is downloaded.
+
 ## Limits
 
 - **A business may build its own product on NMTS.** [Terms 3.7](https://nmts.me/terms) covers it:
@@ -417,8 +460,9 @@ await gateway.listen(9000);                  // 127.0.0.1 unless you pass a host
 - **Rate and spend ceilings** exist on the server: one account may spend 4,096 credits (4 GiB) a
   day, and a person must pass the human check every four weeks for the things it gates.
 - **Sharing and the recovery list** are in the
-  [command-line tool](https://github.com/needmoretruth/nmts-cli), not in this package. This package is
-  built on that tool's library surface (`@needmoretruth/nmts-cli`), so they can be reached from there.
+  [command-line tool](https://github.com/needmoretruth/nmts-cli) as commands (`nmts share`,
+  `nmts recovery-list`), not in this package, and that tool does not export them as library calls
+  yet. Both are planned for this package.
 
 
 ## Building from source

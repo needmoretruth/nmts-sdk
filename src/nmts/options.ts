@@ -1,7 +1,7 @@
-// What a caller hands the client, what it gets back about the account, and the one seam those
-// options reach the runtime's host through.
+// What a caller hands the client, what it gets back about the account, and the two seams those
+// options reach the command-line package through.
 
-import { host, NmtsError, type Network } from "@needmoretruth/nmts-cli/portable";
+import { host, NmtsError, useReach, type Network } from "@needmoretruth/nmts-cli/portable";
 
 import { useHostOptions } from "../host-options.ts";
 import type { ServerOptions } from "../session.ts";
@@ -18,8 +18,24 @@ export interface NmtsOptions extends ServerOptions {
    * ⚠ ONE host, not a list: unlike reads there is nothing to fail over to.
    */
   relay?: string | undefined;
-  /** The Sui JSON-RPC endpoint this client asks, instead of the network's own. */
-  suiRpc?: string | undefined;
+  /**
+   * The Sui JSON-RPC endpoints this client asks, instead of the network's own: one, or a list
+   * tried in order.
+   *
+   * ⛔ IT REPLACES THE LIST rather than adding to it, exactly as `aggregators` does — somebody who
+   *    names a node is saying *those*, and reaching a public mirror as well would send their
+   *    traffic somewhere they did not choose.
+   */
+  suiRpc?: string | readonly string[] | undefined;
+  /**
+   * The function every request this client makes goes through — the NMTS server, the storage
+   * network's relay and aggregators, and the Sui nodes, including the requests the storage and
+   * chain libraries make for themselves. Absent, the runtime's own `fetch`.
+   *
+   * This is where a proxy goes, and it is the whole of what one needs: an `undici` `ProxyAgent`,
+   * a SOCKS tunnel, a recorder, a counter. Nothing about a proxy is built into this package.
+   */
+  fetch?: typeof fetch | undefined;
   /**
    * Told each progress line the work produces. Absent, the command-line package's Node host writes
    * them to stderr and a page says nothing.
@@ -35,11 +51,12 @@ export interface NmtsOptions extends ServerOptions {
 }
 
 /**
- * The three fields that say where to talk, taken off a convenience maker's one object.
+ * The fields that say where to talk and what to talk through, taken off a convenience maker's one
+ * object.
  *
  * ⛔ SO THAT NO CREDENTIAL IS COPIED ONTO THE CLIENT. `Nmts.device({ accountCode, … })` takes one
  *    flat object because that is what is pleasant to write; what the client keeps out of it is
- *    these three, and the code goes to the root and nowhere else.
+ *    these, and the code goes to the root and nowhere else.
  */
 export function optionsOf(from: NmtsOptions): NmtsOptions {
   return {
@@ -48,9 +65,17 @@ export function optionsOf(from: NmtsOptions): NmtsOptions {
     aggregators: from.aggregators,
     relay: from.relay,
     suiRpc: from.suiRpc,
+    fetch: from.fetch,
     onProgress: from.onProgress,
     wasmUrl: from.wasmUrl,
   };
+}
+
+/** One host or several, as the one shape everything underneath reads. */
+function suiRpcList(named: string | readonly string[] | undefined): readonly string[] | undefined {
+  if (named === undefined) return undefined;
+  const hosts = (typeof named === "string" ? [named] : named).map((h) => h.trim()).filter((h) => h !== "");
+  return hosts.length === 0 ? undefined : hosts;
 }
 
 /** What the constructor does with the options it was handed, and the only thing it does with them. */
@@ -66,12 +91,26 @@ export function useOptions(options: NmtsOptions): void {
         "it — on Node the engine comes out of the installed command-line package.",
     });
   }
+  const suiRpc = suiRpcList(options.suiRpc);
+  // ⛔ WHERE THIS CLIENT TALKS AND WHAT IT TALKS THROUGH, TOLD TO THE PACKAGE THAT DOES THE
+  //    TALKING. Until this existed, `relay` and `suiRpc` were read by the browser host alone and
+  //    were silently ignored on Node — a caller who named a relay watched their bytes go to the
+  //    public one. Every host reads these now, and `fetch` is the whole of what a proxy needs.
+  useReach({
+    relay: options.relay,
+    suiRpc,
+    aggregators: options.aggregators,
+    fetch: options.fetch,
+  });
   // ⛔ THE HOST IS THE RUNTIME'S AND THIS IS THE ONE SEAM TO IT. A host was registered when the
   //    entry point was imported, long before any client existed; these are the things only a
   //    caller knows, and the host reads them when it is asked to do the thing that needs them.
+  //
+  // ⚠ THE ADDRESSES ARE STILL WRITTEN HERE, because a page that builds its own `browserHost` and
+  //   never makes a client reads them through this one; a client fills both, with the same values.
   useHostOptions({
     relay: options.relay,
-    suiRpc: options.suiRpc,
+    suiRpc: suiRpc?.[0],
     aggregators: options.aggregators,
     onProgress: options.onProgress,
     wasmUrl: options.wasmUrl,
