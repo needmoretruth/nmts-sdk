@@ -77,6 +77,10 @@ in the tab's memory, and NMTS never sees it. The difference from the managed row
 passes through, not whether you *could* read the files — a page you serve can do what its code
 says. Tell your users that your page's code can read their files.
 
+Which row a product is on is that product's own statement. NMTS does not inspect or certify what
+is built with this library, and the server cannot tell the rows apart: the NMTS key never reaches
+it. The library comes as the [licence](#licence) says, without warranty.
+
 ## Recipes
 
 Runnable files in [`examples/`](examples/), one per shape:
@@ -84,8 +88,10 @@ Runnable files in [`examples/`](examples/), one per shape:
 | Shape | File | What it shows |
 |---|---|---|
 | Node, device | `quickstart.mjs` | put, get and list from a shell with the two credentials in the environment |
+| Node, device, wallet-paid | `pay-from-wallet.mjs` | the price with `dryRun`, then an upload paid in WAL and SUI from the account's own wallet, no credits |
 | Browser, device | `next-embedded/UploadButton.jsx` | a Next.js client component: a file picker, `put({ name, blob })`, the key never leaves the page |
 | Node, managed | `node-managed/server.mjs` | a service holding its customers' keys in a store of its own, `openCode` once per call |
+| Node, S3 gateway | `gateway/server.mjs` | a bucket and a key pair per customer, so a Django or Rails storage adapter, rclone or a backup tool stores into that customer's account |
 
 ## The two credentials
 

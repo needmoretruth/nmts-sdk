@@ -17,18 +17,17 @@
 //    program instead of a person. Where this file decides something the tool decides
 //    by asking a person — spending, reading a code from the environment — the decision is the
 //    caller's, made by calling the method, and the README says so at the top.
+//
+// ⚠ WHAT IS NOT A METHOD LIVES IN `nmts/`, and this file is still the name both entry points and
+//   the gateway import: the option shapes, the weak map the gateway reads a client's account out
+//   of, and the two things `put` needs before it starts.
 
 import {
-  createBlobProtocol,
-  createUploadApi,
   host,
   newAccountCode,
   NmtsError,
-  readCurrentEpoch,
   registrationProofOf,
   walletAddress,
-  type Network,
-  type PlaintextSource,
   type ReadOptions,
 } from "@needmoretruth/nmts-cli/portable";
 
@@ -41,8 +40,18 @@ import {
   type RegisteredUser,
 } from "./business.ts";
 import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getTo, type GetResult } from "./get.ts";
-import { useHostOptions } from "./host-options.ts";
 import { listEntries, type Entry, type ListOptions } from "./list.ts";
+import { rememberInsides } from "./nmts/insides.ts";
+import {
+  optionsOf,
+  useOptions,
+  type AccountInfo,
+  type GetOptions,
+  type GetToOptions,
+  type NmtsOptions,
+  type WalletAddressOptions,
+} from "./nmts/options.ts";
+import { creditRail, sourceOf } from "./nmts/uploading.ts";
 import { nodeSeams } from "./node-seams.ts";
 import {
   makeFolderAt,
@@ -57,19 +66,15 @@ import {
   type RestoreResult,
 } from "./organise.ts";
 import {
-  bytesSource,
-  nameOf,
   putSource,
   type PutInput,
   type PutOptions,
   type PutResult,
   type PutReview,
-  type UploadRail,
 } from "./put.ts";
 import { putSourceWithWallet } from "./put-wallet.ts";
-import { blobSource } from "./source-blob.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
-import { openAccount, withAccount, type Opened, type ServerOptions } from "./session.ts";
+import { openAccount, withAccount, type Opened } from "./session.ts";
 import {
   payingWallet,
   requireWalletIndex,
@@ -79,127 +84,17 @@ import {
   type WalletInfo,
 } from "./wallets.ts";
 
-export interface NmtsOptions extends ServerOptions {
-  /**
-   * Hosts to read stored bytes from, instead of the public aggregators for the network. For a
-   * development stack, or an aggregator you run yourself.
-   */
-  aggregators?: readonly string[] | undefined;
-  /**
-   * The storage network's relay this client writes through, instead of the network's own.
-   *
-   * ⚠ ONE host, not a list: unlike reads there is nothing to fail over to.
-   */
-  relay?: string | undefined;
-  /** The Sui JSON-RPC endpoint this client asks, instead of the network's own. */
-  suiRpc?: string | undefined;
-  /**
-   * Told each progress line the work produces. Absent, the command-line package's Node host writes
-   * them to stderr and a page says nothing.
-   */
-  onProgress?: ((line: string) => void) | undefined;
-  /**
-   * BROWSER ENTRY ONLY: where the engine's WebAssembly is, when a bundler put it somewhere the
-   * module cannot work out for itself. On Node it is refused rather than ignored — the engine
-   * there comes out of the installed package, so a caller who set this did not get what they asked
-   * for.
-   */
-  wasmUrl?: string | undefined;
-}
-
-/**
- * The three fields that say where to talk, taken off a convenience maker's one object.
- *
- * ⛔ SO THAT NO CREDENTIAL IS COPIED ONTO THE CLIENT. `Nmts.device({ accountCode, … })` takes one
- *    flat object because that is what is pleasant to write; what the client keeps out of it is
- *    these three, and the code goes to the root and nowhere else.
- */
-function optionsOf(from: NmtsOptions): NmtsOptions {
-  return {
-    server: from.server,
-    network: from.network,
-    aggregators: from.aggregators,
-    relay: from.relay,
-    suiRpc: from.suiRpc,
-    onProgress: from.onProgress,
-    wasmUrl: from.wasmUrl,
-  };
-}
-
-export interface GetOptions {
-  /** How many bytes `get()` may hold in memory. Default 256 MiB. Over it, use `getTo()`. */
-  maxBytes?: number | undefined;
-}
-
-export interface GetToOptions {
-  /** Replace a file already at the destination. Off by default, and saying so is the point. */
-  force?: boolean | undefined;
-}
-
-export interface WalletAddressOptions {
-  /** Which of this key's wallets. Absent = the one the account pays from. */
-  index?: number | undefined;
-}
-
-export interface AccountInfo {
-  /** The account's public id — what the server knows it by. Not a secret. */
-  accountId: string;
-  server: string;
-  network: Network;
-}
-
-/**
- * The bytes an upload will read, and the name they came with.
- *
- * ⛔ A PATH IS READ ONLY WHERE THERE IS A DISK. The modules that open one live behind the Node
- *    entry point, so this reaches for them when it is handed a path and refuses when the runtime
- *    that registered the host has no files — which is the honest answer in a page, and a sentence
- *    rather than a crash three calls further in.
- */
-function sourceOf(file: PutInput | Uint8Array): { source: PlaintextSource; name: string } {
-  if (typeof file === "string") {
-    const seams = nodeSeams(
-      "PUT_PATH_UNAVAILABLE",
-      "Nothing was sent. Hand `put` the bytes — `{ name, bytes }` — or a `Blob` — " +
-        "`{ name, blob }` — which is what a file picker, a drag or a `fetch` already gives you.",
-    );
-    return { source: seams.source(file), name: nameOf(file) };
-  }
-  if (file instanceof Uint8Array) return { source: bytesSource(file), name: "" };
-  if ("blob" in file) return { source: blobSource(file.blob, file.name), name: file.name };
-  return { source: bytesSource(file.bytes), name: file.name };
-}
-
-/**
- * What this package's own Node-only modules need of a client, and callers do not.
- *
- * ⛔ A WEAK MAP RATHER THAN A METHOD ON THE CLASS. The gateway builds a drive out of a client, and
- *    to do that it needs the opened account — the root that holds the key and the credential every
- *    request carries. Put on `Nmts` that would be public surface in all but name: the README would
- *    have to explain it, `surface.test.ts` would list it, and the first program to reach for it
- *    would be reaching past the three verbs on purpose. Here it is reachable from the modules that
- *    import this file and from nowhere else, and it adds nothing a caller can see.
- */
-export interface ClientInsides {
-  /** The account this client speaks for, opened on first use and kept. */
-  opened(): Opened;
-  /** Which hosts stored bytes are read from, when the caller named any. */
-  read(): ReadOptions | undefined;
-}
-
-const insides = new WeakMap<Nmts, ClientInsides>();
-
-/** The insides of a client this package made. Anything else is a caller's own object. */
-export function insidesOf(client: Nmts): ClientInsides {
-  const found = insides.get(client);
-  if (found === undefined) {
-    throw new NmtsError("NOT_A_CLIENT: that is not an Nmts client this package made.", {
-      exitCode: 2,
-      nextStep: "Nothing was read or written. Hand the gateway what `Nmts.device()` or `Nmts.managed()` answered.",
-    });
-  }
-  return found;
-}
+// The shapes a caller hands in and gets back, and the door this package's own Node-only modules
+// read a client's opened account through. Both entry points and the gateway import them from here.
+export type {
+  AccountInfo,
+  GetOptions,
+  GetToOptions,
+  NmtsOptions,
+  WalletAddressOptions,
+} from "./nmts/options.ts";
+export { insidesOf } from "./nmts/insides.ts";
+export type { ClientInsides } from "./nmts/insides.ts";
 
 export class Nmts {
   readonly #root: Root;
@@ -209,28 +104,8 @@ export class Nmts {
   constructor(root: Root, options: NmtsOptions = {}) {
     this.#root = root;
     this.#options = { ...options };
-    insides.set(this, { opened: () => this.#account(), read: () => this.#read() });
-    // ⛔ AN OPTION THAT WOULD BE IGNORED IS A REFUSAL, not a shrug. The Node host finds the engine
-    //    in the installed package, so a caller who named a URL for it was writing for the browser
-    //    entry and is running on the other one.
-    if (options.wasmUrl !== undefined && host().name !== "browser") {
-      throw new NmtsError("OPTION_NODE_IGNORED: `wasmUrl` only applies to the browser entry point.", {
-        exitCode: 2,
-        nextStep:
-          "Nothing was read or written. Import `@needmoretruth/nmts-sdk/browser` to use it, or drop " +
-          "it — on Node the engine comes out of the installed command-line package.",
-      });
-    }
-    // ⛔ THE HOST IS THE RUNTIME'S AND THIS IS THE ONE SEAM TO IT. A host was registered when the
-    //    entry point was imported, long before any client existed; these are the things only a
-    //    caller knows, and the host reads them when it is asked to do the thing that needs them.
-    useHostOptions({
-      relay: options.relay,
-      suiRpc: options.suiRpc,
-      aggregators: options.aggregators,
-      onProgress: options.onProgress,
-      wasmUrl: options.wasmUrl,
-    });
+    rememberInsides(this, { opened: () => this.#account(), read: () => this.#read() });
+    useOptions(options);
   }
 
   /** The key is in THIS process: a browser, an app, a game client, your own program. */
@@ -460,18 +335,7 @@ export class Nmts {
     // ⛔ WHICH MONEY IS DECIDED BEFORE ANYTHING IS READ, as the command-line tool decides it. The
     //    credit rail below cannot price in WAL or sign a transaction, and it must not learn.
     if (options.pay === "wallet") return putSourceWithWallet(opened, source, name, options);
-    return putSource(opened, source, name, options, (sealedBytes) => this.#rail(opened, sealedBytes, options));
-  }
-
-  /** The credit-paid rail: the server sells the storage, the network's relay takes the bytes. */
-  async #rail(opened: Opened, sealedBytes: number, options: PutOptions): Promise<UploadRail> {
-    const protocol = createBlobProtocol(opened.network, sealedBytes, options.onProgress);
-    return {
-      api: createUploadApi(opened.server, opened.bearer),
-      protocol,
-      relayUrl: protocol.relayUrl,
-      currentEpoch: await readCurrentEpoch(opened.network),
-    };
+    return putSource(opened, source, name, options, (sealedBytes) => creditRail(opened, sealedBytes, options));
   }
 
   /** One file, whole and checked, in memory. Nothing is spent. */

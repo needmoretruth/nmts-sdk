@@ -49,6 +49,9 @@ managed client calls `openCode()` once per call on the account and keeps nothing
 If you are being set up and it is not already clear which one you are running on, say which it is
 before the first `put()`.
 
+Which row a product is on is that product's own statement. NMTS does not inspect or certify what
+is built with this library, and its server cannot tell the rows apart: the NMTS key never reaches it.
+
 ## A business's accounts (NMTS Platform)
 
 A business registered at nmts.me (Settings › Developer › Platform — a person does that, in a
