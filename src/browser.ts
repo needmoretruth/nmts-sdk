@@ -106,6 +106,7 @@ export type {
 export type { GetResult } from "./get.ts";
 export { blobSource } from "./source-blob.ts";
 
+export { phraseOf } from "@needmoretruth/nmts-cli/portable";
 export { NmtsError, ServerError, UploadError } from "@needmoretruth/nmts-cli/portable";
 export type { FileUploadStep, ServerRefusal } from "@needmoretruth/nmts-cli/portable";
 

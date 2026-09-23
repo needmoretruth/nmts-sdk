@@ -57,6 +57,13 @@ export interface BusinessInfo {
   name: string | null;
   /** ISO 8601, UTC. */
   createdAt: string;
+  /**
+   * When the registered key was last replaced, ISO 8601 UTC — null if it never was.
+   *
+   * ⚠ NULL ALSO WHEN THE SERVER IS OLDER THAN THE FIELD, and the two cannot be told apart from
+   *   here. Neither answer means a rotation happened, which is what a caller reads it for.
+   */
+  keyChangedAt: string | null;
   /** How many users it has registered today, and the ceiling it is held to. */
   usersToday: number;
   usersDayCap: number;
@@ -216,6 +223,7 @@ function readInfo(answer: unknown): BusinessInfo {
     publicKey: text(row, "pubkey"),
     name: typeof field(row, "name") === "string" ? text(row, "name") : null,
     createdAt: text(row, "created_at"),
+    keyChangedAt: typeof field(row, "key_changed_at") === "string" ? text(row, "key_changed_at") : null,
     usersToday: count(row, "users_today"),
     usersDayCap: count(row, "users_day_cap"),
   };

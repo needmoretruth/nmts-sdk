@@ -107,6 +107,11 @@ The API key is the cheap, revocable thing you hand to a program; the NMTS key is
 them apart: a leaked API key is revoked in one click and opens no file, a leaked NMTS key is the
 account, for good.
 
+The NMTS key can also be written as a 15-word recovery phrase, from the BIP-39 English or Korean
+word list. It is the same key in another form: every call that takes an NMTS key takes the phrase,
+and `phraseOf(accountCode, "en" | "ko")` returns the words (new in 0.11.0). The phrase opens the
+account exactly as the key does, so it is kept the same way.
+
 ### `Nmts.fromEnv()`
 
 A device client whose two credentials come from the same variables the command-line tool reads, in
@@ -393,7 +398,7 @@ do the same in your `sign`.
 |---|---|---|---|
 | Make the account | a person | nmts.me | once |
 | Make an API key | a person | the account screen at nmts.me | once, and again if it is revoked |
-| Pass the check that says a person is here | a person | nmts.me, one short code | every four weeks, and only for making further accounts, credits and sharing |
+| Pass the check that says a person is here | a person | nmts.me, one short code | every twelve weeks, and only for making further accounts, credits and sharing |
 | Get credits into the account | a person | nmts.me — the free trial | once, then as they run out |
 
 ## Accounts for your own users (NMTS Platform)
@@ -430,7 +435,7 @@ const token = await business.delegate({
 | Call | Where it runs | What it does |
 |---|---|---|
 | `Nmts.business({ accountId, privateKey })` | your server — it refuses in a page (`BUSINESS_IN_A_PAGE`) | the client below; nothing is sent until a method is called |
-| `business.info()` | your server | the registered public key, the name, accounts opened today and the daily limit |
+| `business.info()` | your server | the registered public key, the name, accounts opened today, the daily limit, and `keyChangedAt` — when the key was last replaced, or null |
 | `business.registerUser()` | your server | opens an account and returns its new NMTS key, once |
 | `business.registerUser({ accountCode })` | your server | opens the account of a code you already hold |
 | `business.delegate({ user, scope, ttlSecs })` | your server | signs a delegation token for one of your users; nothing is sent. `ttlSecs` is at most 30 days |
@@ -533,7 +538,7 @@ Two things to know before relying on it:
 - **One account, one list.** Everything in an account is one sealed list, and every edit rewrites
   it. The ceiling is 16 MiB sealed — about 60,000 files. Past that, use more accounts.
 - **Rate and spend ceilings** exist on the server: one account may spend 4,096 credits (4 GiB) a
-  day, and a person must pass the human check every four weeks for the things it gates.
+  day, and a person must pass the human check every twelve weeks for the things it gates.
 - **Sharing and the recovery list** are in the
   [command-line tool](https://github.com/needmoretruth/nmts-cli) as commands (`nmts share`,
   `nmts recovery-list`), not in this package, and that tool does not export them as library calls

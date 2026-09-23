@@ -42,6 +42,7 @@ test("⛔ info() is signed over the request it makes, and reads back what the bu
     publicKey: KEYS.publicKey,
     name: "Acme",
     createdAt: "2026-09-17T00:00:00Z",
+    keyChangedAt: null,
     usersToday: 7,
     usersDayCap: 1000,
   });
@@ -106,7 +107,11 @@ test("⛔ rotateKey() proves both halves, and the old key stops working the mome
   // which is the same thing that happens to every token the old key signed.
   await assert.rejects(client.info(), /signature/i);
   const moved = Nmts.business({ accountId: BUSINESS_ID, privateKey: next.privateKey, server: drive.base });
-  assert.equal((await moved.info()).publicKey, next.publicKey);
+  const after = await moved.info();
+  assert.equal(after.publicKey, next.publicKey);
+  // ⛔ AND THE DATE COMES BACK. «Is the leak we are worried about older or newer than the fix» is
+  //    the question a rotation leaves behind, and it is unanswerable without this instant.
+  assert.equal(after.keyChangedAt, "2026-09-20T12:00:00Z");
 });
 
 test("a device makes its own key and learns its own id without a request", async () => {

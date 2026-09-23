@@ -81,7 +81,7 @@ Four things need a person, all at the beginning. If you are being set up, hand t
 |---|---|---|---|
 | 1. Make the account | a person | nmts.me | once |
 | 2. Make an API key for you | a person | the account screen at nmts.me | once, and again if it is revoked |
-| 3. Pass the check that says a person is here | a person | nmts.me, one short code | every four weeks, and only for step 1, step 4 and sharing |
+| 3. Pass the check that says a person is here | a person | nmts.me, one short code | every twelve weeks, and only for step 1, step 4 and sharing |
 | 4. Get credits into the account | a person | nmts.me — the free trial | once, then as they run out |
 
 The command-line tool (`@needmoretruth/nmts-cli`) can do step 1 from an existing account, with

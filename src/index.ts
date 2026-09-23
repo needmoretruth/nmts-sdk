@@ -113,6 +113,9 @@ export { blobSource } from "./source-blob.ts";
 // The failures. `NmtsError` carries `exitCode` and `nextStep` exactly as the command-line tool's
 // do, so a program can print the same sentence a person would have seen; `ServerError` is the
 // server's own refusal with its code; `UploadError` says whether money moved.
+// The NMTS key as its 15-word recovery phrase (BIP-39, `en` or `ko`). Every call that takes a key
+// also takes the phrase, because both go through the engine's one parser.
+export { phraseOf } from "@needmoretruth/nmts-cli/portable";
 export { NmtsError, ServerError, UploadError } from "@needmoretruth/nmts-cli/portable";
 export type { FileUploadStep, ServerRefusal } from "@needmoretruth/nmts-cli/portable";
 
