@@ -33,8 +33,12 @@ if (!existsSync(link)) {
   console.log(`ensure-cli: linked ${relative(sdk, link)} -> ../cli`);
 }
 
-/** The newest modification time of any file under `dir`, or 0 when there is none. */
+/**
+ * The newest modification time of any file under `dir`, or 0 when there is none. A CLI installed
+ * from npm ships its build without `src/`, so a missing folder is 0, not an error.
+ */
 function newest(dir) {
+  if (!existsSync(dir)) return 0;
   let latest = 0;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
