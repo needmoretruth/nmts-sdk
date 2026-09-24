@@ -5,8 +5,10 @@
 //   — is written here, in the file that already holds both rails.
 
 import {
+  classify,
   createBlobProtocol,
   createUploadApi,
+  NmtsError,
   readCurrentEpoch,
   type PlaintextSource,
 } from "@needmoretruth/nmts-cli/portable";
@@ -20,6 +22,7 @@ import {
   type PutOptions,
   type PutResult,
   type PutReview,
+  type RailOptions,
   type UploadRail,
 } from "../put.ts";
 import { paysFromWallet } from "../pay.ts";
@@ -40,8 +43,30 @@ export async function putVia(
 ): Promise<PutResult | PutReview> {
   const { source, name: own } = sourceOf(file);
   const name = options.name ?? own;
-  // Both wallets take the same rail: which wallet signs is decided inside it, and the credit rail
-  // cannot price in WAL whichever wallet it is.
+  const { thumbnail, ...rest } = options;
+  if (thumbnail === undefined) return putOne(opened, source, name, rest);
+  // A video's preview picture is a second, ordinary upload linked to it (gallery spec §7 ·
+  // `nmts put --thumbnail`). Only a video has a tile to show it on, so anything else is refused
+  // before a byte is read or anything is spent.
+  if (classify(name).kind !== "video") {
+    throw new NmtsError(`"${name}" is not a video, so it takes no thumbnail.`, {
+      exitCode: 2,
+      nextStep: "Nothing was sent and nothing was charged. Drop `thumbnail`, or put a video.",
+    });
+  }
+  const video = await putOne(opened, source, name, rest);
+  const pictureName = `${video.name}.thumb.jpg`;
+  const picture = thumbnail instanceof Uint8Array ? bytesSource(thumbnail) : blobSource(thumbnail, pictureName);
+  const linked = await putOne(opened, picture, pictureName, {
+    ...rest,
+    name: pictureName,
+    ...(video.dryRun ? {} : { thumbOf: video.id }),
+  });
+  return { ...video, thumbnail: linked };
+}
+
+/** Both wallets take the same rail: which wallet signs is decided inside it, and the credit rail cannot price in WAL. */
+function putOne(opened: Opened, source: PlaintextSource, name: string, options: RailOptions): Promise<PutResult | PutReview> {
   if (paysFromWallet(options.pay)) return putSourceWithWallet(opened, source, name, options);
   return putSource(opened, source, name, options, (sealedBytes) => creditRail(opened, sealedBytes, options));
 }

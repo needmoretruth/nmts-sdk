@@ -74,6 +74,22 @@ for (const { name, root, opens } of rootsUnderTest()) {
     });
   });
 
+  test(`[${name}] a video's preview picture is part of the video; \`media\` keeps one kind`, async () => {
+    await withSandbox(drive, `sdk-list-media-${name}`, async (code) => {
+      await drive.serve(code, [
+        entry({ id: "clip", name: "trip.mp4", size: 10 }),
+        entry({ id: "pic", name: "trip.mp4.thumb.jpg", size: 3, thumbOf: "clip" }),
+        entry({ id: "stray", name: "old.mp4.thumb.jpg", size: 3, thumbOf: "gone" }),
+        entry({ id: "song", name: "tune.mp3", size: 4 }),
+      ]);
+      const nmts = client(code);
+      // ⛔ One whose video is gone is listed — a picture somebody paid for must stay reachable.
+      assert.deepEqual((await nmts.list()).map((r) => r.path), ["old.mp4.thumb.jpg", "trip.mp4", "tune.mp3"]);
+      assert.deepEqual((await nmts.list({ media: "video" })).map((r) => r.path), ["trip.mp4"]);
+      assert.deepEqual((await nmts.list({ media: "image" })).map((r) => r.path), ["old.mp4.thumb.jpg"]);
+    });
+  });
+
   // ⚠ EITHER CREDENTIAL, EACH NAMED AS ITSELF: the refusal says which one was asked for, so a
   //   caller who filled in the wrong field is told which field. This row walks both.
   test(`[${name}] an empty credential refuses before any request is made`, async () => {

@@ -110,7 +110,16 @@ export interface PutOptions {
   onStep?: ((step: FileUploadStep) => void) | undefined;
   /** Told as sealed bytes leave for the relay — the honest measure of an upload's progress. */
   onProgress?: ((sent: number, total: number) => void) | undefined;
+  /**
+   * For a video: a small picture (a JPEG frame) sent after it as `<saved name>.thumb.jpg`, linked
+   * to it so every app shows it as the video's tile. It is a second upload, priced and paid for
+   * on the same rail; its answer is the video's `thumbnail`. Refused for a file that is not a video.
+   */
+  thumbnail?: Uint8Array | Blob | undefined;
 }
+
+/** `PutOptions` as a rail reads them: `thumbOf` links a preview picture to its stored video. */
+export type RailOptions = Omit<PutOptions, "thumbnail"> & { thumbOf?: string | undefined };
 
 /** Where a wallet-paid part's storage came from. */
 export type PutStorage =
@@ -135,6 +144,8 @@ interface PutFacts {
   /** Bytes the storage network holds for it, padding and sealing included. */
   sealedBytes: number;
   parts: number;
+  /** When `thumbnail` was passed: the picture's own answer, a review when this is one. */
+  thumbnail?: PutResult | PutReview;
 }
 
 interface Uploaded extends PutFacts {
@@ -267,7 +278,7 @@ export async function putSource(
   opened: Opened,
   source: PlaintextSource,
   name: string,
-  options: PutOptions,
+  options: RailOptions,
   rail: (sealedBytes: number) => Promise<UploadRail>,
 ): Promise<CreditsPut | CreditsReview> {
   requireName(name);
@@ -328,6 +339,7 @@ export async function putSource(
         updatedAt: now,
         dekWrapped: result.entry.dekWrapped,
         contentHashCt: result.entry.contentHashCt,
+        ...(options.thumbOf === undefined ? {} : { thumbOf: options.thumbOf }),
       },
     });
     // ⛔ ONLY NOW, AND EVERY PART. Until the entry is in the list the file is paid for and invisible,

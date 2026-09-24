@@ -11,11 +11,13 @@
 //    fetched, and the refusal names `getTo()`, which streams to disk and has no ceiling.
 
 import {
+  buildIndex,
   entryAt,
   fetchFile,
   KIND_FILE,
   NmtsError,
   type FetchedFile,
+  type ManifestEntry,
   type PlaintextSink,
   type ReadOptions,
 } from "@needmoretruth/nmts-cli/portable";
@@ -97,12 +99,15 @@ export async function fetchInto(
   path: string,
   sink: PlaintextSink,
   read: ReadOptions | undefined,
+  thumbnail = false,
 ): Promise<GetResult> {
   const { entries } = await readList(held);
   if (entries.length === 0) {
     throw new NmtsError("This account has no file list, so there is nothing to get.", { exitCode: 4 });
   }
-  const entry = entryAt(entries, path, { nothingHappened: "Nothing was fetched." });
+  const named = entryAt(entries, path, { nothingHappened: "Nothing was fetched." });
+  // `thumbnail`: the video's preview picture instead of the video (gallery spec §7 · `nmts get --thumbnail`).
+  const entry = thumbnail ? pictureOf(entries, named, path) : named;
   if (entry.kind !== KIND_FILE) {
     throw new NmtsError(`"${path}" is a folder.`, {
       exitCode: 4,
@@ -135,16 +140,28 @@ export async function fetchInto(
   };
 }
 
+/** The preview picture linked to a video, or a refusal naming how one is sent. */
+function pictureOf(entries: readonly ManifestEntry[], video: ManifestEntry, path: string): ManifestEntry {
+  const index = buildIndex(entries);
+  const picture = index.byId.get(index.previews.get(video.id)?.[0] ?? "");
+  if (picture !== undefined) return picture;
+  throw new NmtsError(`"${path}" has no preview picture.`, {
+    exitCode: 4,
+    nextStep: "Nothing was fetched. put(video, { thumbnail }) sends one with a video.",
+  });
+}
+
 /** The whole file, in memory, or a refusal. */
 export async function getBytes(
   opened: Opened,
   path: string,
   limit: number,
   read: ReadOptions | undefined,
+  thumbnail = false,
 ): Promise<Uint8Array> {
   return withAccount(opened, async (held) => {
     const memory = bytesSink(limit);
-    await fetchInto(held, path, memory.sink, read);
+    await fetchInto(held, path, memory.sink, read, thumbnail);
     return memory.take();
   });
 }
@@ -161,6 +178,7 @@ export async function getTo(
   path: string,
   sink: PlaintextSink,
   read: ReadOptions | undefined,
+  thumbnail = false,
 ): Promise<GetResult> {
-  return withAccount(opened, async (held) => fetchInto(held, path, sink, read));
+  return withAccount(opened, async (held) => fetchInto(held, path, sink, read, thumbnail));
 }

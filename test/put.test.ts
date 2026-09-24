@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 
 import { testConfigDir } from "../../cli/src/credentials.ts";
+import { Nmts, NmtsError } from "../src/index.ts";
 import { openAccount, type Opened } from "../src/session.ts";
 import { bytesSource, putSource, type UploadRail } from "../src/put.ts";
 import { apiThat, entry, folder, KEY, protocolThat, startFakeDrive, withSandbox, type FakeDrive } from "./helpers.ts";
@@ -118,6 +119,30 @@ for (const { name, root, opens } of rootsUnderTest()) {
       }
       assert.equal(calls.reserve, 0);
       assert.deepEqual(drive.written, []);
+    });
+  });
+
+  test(`[${name}] a preview picture is recorded with the id of the video it belongs to`, async () => {
+    await withSandbox(drive, `sdk-put-thumbof-${name}`, async (code) => {
+      await drive.serve(code, [entry({ id: "clip", name: "trip.mp4", size: 10 })]);
+      const { rail } = railThat();
+      const picture = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+      await putSource(account(code), bytesSource(picture), "trip.mp4.thumb.jpg", { thumbOf: "clip" }, rail);
+      const written = await drive.lastWritten(code);
+      assert.equal(written.find((e) => e.name === "trip.mp4.thumb.jpg")?.thumbOf, "clip");
+    });
+  });
+
+  test(`[${name}] ⛔ a thumbnail for a file that is not a video is refused before anything is read`, async () => {
+    await withSandbox(drive, `sdk-put-thumbnotvideo-${name}`, async (code) => {
+      const nmts = new Nmts(root({ accountCode: code, apiKey: KEY }), { server: drive.base, network: "testnet" });
+      const bytes = new TextEncoder().encode("notes");
+      await assert.rejects(nmts.put({ name: "notes.txt", bytes }, { thumbnail: new Uint8Array(4) }), (error: unknown) => {
+        assert.ok(error instanceof NmtsError);
+        assert.equal(error.exitCode, 2);
+        return true;
+      });
+      assert.deepEqual(drive.calls, [], "the account was read for a call that could not have worked");
     });
   });
 

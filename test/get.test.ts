@@ -141,6 +141,35 @@ for (const { name, root, opens } of rootsUnderTest()) {
     });
   });
 
+  test(`[${name}] { thumbnail: true } answers the video's preview picture, and refuses a video without one`, async () => {
+    await withSandbox(drive, `sdk-get-thumb-${name}`, async (code) => {
+      const picture = new Uint8Array(700).map((_, i) => (i * 5) % 251);
+      const sealed = await sealFile(code, [picture]);
+      await drive.serve(code, [
+        entry({ id: "clip", name: "trip.mp4", size: 10 }),
+        entry({ id: "lone", name: "other.mp4", size: 10 }),
+        entry({
+          id: ITEM,
+          name: "trip.mp4.thumb.jpg",
+          size: picture.length,
+          thumbOf: "clip",
+          dekWrapped: sealed.dekWrapped,
+          contentHashCt: sealed.contentHashCt,
+        }),
+      ]);
+      drive.parts.set(ITEM, partsOf(sealed, picture.length));
+      aggregator.blobs.clear();
+      for (const p of sealed.parts) aggregator.blobs.set(p.blobId, p.sealed);
+
+      assert.deepEqual(await client(code).get("trip.mp4", { thumbnail: true }), picture);
+      await assert.rejects(client(code).get("other.mp4", { thumbnail: true }), (error: unknown) => {
+        assert.ok(error instanceof NmtsError);
+        assert.equal(error.exitCode, 4);
+        return true;
+      });
+    });
+  });
+
   test(`[${name}] a folder is not a file, and the refusal says so`, async () => {
     await withSandbox(drive, `sdk-get-folder-refused-${name}`, async (code) => {
       await drive.serve(code, [folder({ id: "f1", name: "docs" })]);

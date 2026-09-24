@@ -13,10 +13,12 @@
 import {
   activeWalletOf,
   buildIndex,
+  classify,
   fullPathOf,
   isLive,
   KIND_FOLDER,
   readFileList,
+  shown,
   trashedAt,
   type ManifestEntry,
   type PaddingRule,
@@ -54,6 +56,8 @@ export interface ListOptions {
    * that asks for the account's files is never handed something already on its way out.
    */
   trash?: boolean | undefined;
+  /** Only files of this kind, judged by the name's extension as the gallery judges it. */
+  media?: "image" | "video" | "audio" | undefined;
 }
 
 /** The opened list: its entries, and the settings an upload needs from it. */
@@ -94,7 +98,9 @@ export async function readList(held: Held): Promise<OpenedList> {
  */
 export function toEntries(entries: readonly ManifestEntry[], options: ListOptions = {}): Entry[] {
   const index = buildIndex(entries);
-  const wanted = options.trash === true ? entries : entries.filter((e) => isLive(index, e));
+  // A video's preview picture is part of the video, never an entry of its own (gallery spec §4).
+  const visible = entries.filter((e) => shown(index, e) && (options.media === undefined || isMedia(e, options.media)));
+  const wanted = options.trash === true ? visible : visible.filter((e) => isLive(index, e));
   return wanted
     .map((e) => {
       const gone = trashedAt(index, e);
@@ -111,6 +117,10 @@ export function toEntries(entries: readonly ManifestEntry[], options: ListOption
       };
     })
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+function isMedia(entry: ManifestEntry, kind: "image" | "video" | "audio"): boolean {
+  return entry.kind !== KIND_FOLDER && classify(entry.name).kind === kind;
 }
 
 export async function listEntries(opened: Opened, options: ListOptions = {}): Promise<Entry[]> {

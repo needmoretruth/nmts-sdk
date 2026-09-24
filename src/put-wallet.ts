@@ -39,8 +39,8 @@ import {
   destinationOf,
   pathOf,
   requireName,
-  type PutOptions,
   type PutStorage,
+  type RailOptions,
   type WalletPut,
   type WalletReview,
 } from "./put.ts";
@@ -66,7 +66,7 @@ export async function putSourceWithWallet(
   opened: Opened,
   source: PlaintextSource,
   name: string,
-  options: PutOptions,
+  options: RailOptions,
   seams: WalletSeams = {},
 ): Promise<WalletPut | WalletReview> {
   requireName(name);
@@ -113,7 +113,7 @@ export async function putSourceWithWallet(
         //    coins — then names the wallet that will sign.
         ...(payer === null ? {} : { payer }),
       },
-      { source, name, parentId, destination },
+      { source, name, parentId, destination, ...(options.thumbOf === undefined ? {} : { thumbOf: options.thumbOf }) },
       {
         // ⚠ A `sign` the caller handed in wins: that is the seam a test drives this rail through.
         ...(signer === null ? {} : { sign: blobSigners(signer) }),

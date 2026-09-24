@@ -383,7 +383,7 @@ export class Nmts {
 
   /** One file, whole and checked, in memory. Nothing is spent. */
   async get(path: string, options: GetOptions = {}): Promise<Uint8Array> {
-    return getBytes(this.#account(), path, options.maxBytes ?? DEFAULT_IN_MEMORY_LIMIT, this.#read());
+    return getBytes(this.#account(), path, options.maxBytes ?? DEFAULT_IN_MEMORY_LIMIT, this.#read(), options.thumbnail);
   }
 
   /**
@@ -395,6 +395,6 @@ export class Nmts {
       "GET_TO_UNAVAILABLE",
       "Nothing was fetched. Use get(path), which answers the bytes — a page writes them out itself.",
     ).sink(destination, { force: options.force === true });
-    return getTo(this.#account(), path, sink, this.#read());
+    return getTo(this.#account(), path, sink, this.#read(), options.thumbnail);
   }
 }

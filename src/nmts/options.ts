@@ -120,11 +120,15 @@ export function useOptions(options: NmtsOptions): void {
 export interface GetOptions {
   /** How many bytes `get()` may hold in memory. Default 256 MiB. Over it, use `getTo()`. */
   maxBytes?: number | undefined;
+  /** The video's preview picture instead of the video. A video without one is refused (exit 4). */
+  thumbnail?: boolean | undefined;
 }
 
 export interface GetToOptions {
   /** Replace a file already at the destination. Off by default, and saying so is the point. */
   force?: boolean | undefined;
+  /** The video's preview picture instead of the video. A video without one is refused (exit 4). */
+  thumbnail?: boolean | undefined;
 }
 
 export interface WalletAddressOptions {

@@ -265,14 +265,15 @@ await nmts.wallets()          // WalletInfo[]: { index, address, active } — as
 await nmts.setActiveWallet(2) // which of this key's wallets pays, from now on, on this account
 await nmts.list()             // Entry[]: { id, path, kind, size, createdAt, updatedAt }, trash left out
 await nmts.list({ trash: true })   // the same, with what is in the trash; those entries carry trashedAt
+await nmts.list({ media: "video" })  // one kind only: "image" | "video" | "audio"
 await nmts.mkdir("photos/2026")            // { path, created } — makes missing folders above it too
 await nmts.move(["a.pdf", "b.pdf"], "archive")   // { moved: [{ from, to }] } — "/" is the top
 await nmts.rename("archive/a.pdf", "first.pdf")  // { from, to }
 await nmts.remove("archive/b.pdf")         // { removed } — to the trash, restorable for 30 days
 await nmts.restore("archive/b.pdf")        // { restored }
 await nmts.erase("old.pdf", { confirm: ERASE_CONFIRM })   // { erased, storage } — for good; nothing undoes it
-await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })
-await nmts.get(path, { maxBytes? })                 // Uint8Array; 256 MiB ceiling unless raised
+await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, thumbnail?, dryRun?, onStep?, onProgress? })
+await nmts.get(path, { maxBytes?, thumbnail? })     // Uint8Array; 256 MiB ceiling unless raised
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
 await nmts.storage({ pay? })                        // [{ id, sizeBytes, startEpoch, endEpoch, status }] — asks the chain
 await nmts.extend(path, { epochs?, dryRun?, force?, pay? }) // more storage time for one file — signs and spends WAL
@@ -335,6 +336,12 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
   `credits`; a wallet-paid one reports `credits: 0` with `wal` and `sui` — the chains' smallest
   units, FROST and MIST, as decimal strings — and the `endEpoch` its storage runs to. `dryRun: true`
   answers the same shape with `dryRun: true` and no `id`.
+- **A video's preview picture.** `put(video, { thumbnail })` takes the picture as bytes or a `Blob`
+  and uploads it beside the video as an ordinary small file linked to it, priced and paid like any
+  other; it is refused for a file that is not a video, before the account is read. `get(video,
+  { thumbnail: true })` returns the picture instead of the video. `list()` shows a picture on its own
+  only when its video is gone, and moving a video to the trash, restoring it or erasing it takes
+  its picture with it.
 - **`get()` refuses rather than returns a half-right file.** A wrong key, a part that will not
   open, a whole-file hash that does not match — none of them produce bytes. `getTo()` writes under
   a temporary name and renames only after the whole file is checked.
