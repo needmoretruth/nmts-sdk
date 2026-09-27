@@ -31,6 +31,8 @@ import {
   signBusinessRequest,
   type ScopeName,
 } from "@needmoretruth/nmts-cli/portable";
+import { setPublicCodesWith, type PublicCodeDoor } from "./business-codes.ts";
+export type { PublicCodeResult, PublicCodeUser } from "./business-codes.ts";
 
 /** The five things a delegation token may carry, by name. The command-line package owns the list. */
 export type { ScopeName } from "@needmoretruth/nmts-cli/portable";
@@ -137,7 +139,7 @@ export interface DelegationOrder {
 }
 
 /** A business's own client. */
-export interface Business {
+export interface Business extends PublicCodeDoor {
   /** Who this business is, and what it has registered today. */
   info(): Promise<BusinessInfo>;
   /**
@@ -269,6 +271,7 @@ export function businessClient(credentials: BusinessCredentials & BusinessOption
         proof: rotationProof(businessPublicKey(privateKey), newPrivateKey),
       });
     },
+    setPublicCodes: (users) => setPublicCodesWith(signed, users),
   };
 }
 

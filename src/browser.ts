@@ -52,6 +52,8 @@ export type {
   DelegationOrder,
   EmbeddedRegistration,
   ListedUser,
+  PublicCodeResult,
+  PublicCodeUser,
   RegisteredUser,
   ScopeName,
   UserPage,
@@ -75,6 +77,8 @@ export type {
   RestoreResult,
 } from "./organise.ts";
 export type { ActiveWallet, WalletInfo } from "./wallets.ts";
+export type { CreatedPublicCode, PublicCodeIdentity, PublicCodeInfo, PublicCodeList, PublicCodes } from "./public-codes.ts";
+export type { CodeActivity, ReceivedThrough, SentThrough } from "@needmoretruth/nmts-cli/portable";
 // Which money buys the storage, and the wallet a caller holds the key to.
 export type { ExternalSigner, PayerOptions, PayFrom } from "./pay.ts";
 export type {
@@ -113,6 +117,7 @@ export type {
   TransferReview,
 } from "./storage.ts";
 export type { GetResult } from "./get.ts";
+export type { ListedLink, MadeLink, MakeLinkOptions, OpenedLinkBytes, OpenLinkOptions } from "./links.ts";
 export { blobSource } from "./source-blob.ts";
 
 export { phraseOf } from "@needmoretruth/nmts-cli/portable";

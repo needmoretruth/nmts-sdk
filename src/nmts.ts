@@ -24,42 +24,21 @@
 
 import { newAccountCode, registrationProofOf, type ReadOptions } from "@needmoretruth/nmts-cli/portable";
 
-import {
-  businessClient,
-  registerWithDelegation,
-  type Business,
-  type BusinessCredentials,
-  type EmbeddedRegistration,
-  type RegisteredUser,
-} from "./business.ts";
+import { businessClient, registerWithDelegation } from "./business.ts";
+import type { Business, BusinessCredentials, EmbeddedRegistration, RegisteredUser } from "./business.ts";
 import { eraseForGood, type EraseOptions, type EraseResult } from "./erase.ts";
 import { DEFAULT_IN_MEMORY_LIMIT, getBytes, getTo, type GetResult } from "./get.ts";
 import { listEntries, type Entry, type ListOptions } from "./list.ts";
 import { credentialsFromWallet, openersOn, type Openers, type WalletCredentials } from "./openers.ts";
 import { rememberInsides } from "./nmts/insides.ts";
-import {
-  optionsOf,
-  useOptions,
-  type AccountInfo,
-  type GetOptions,
-  type GetToOptions,
-  type NmtsOptions,
-  type WalletAddressOptions,
-} from "./nmts/options.ts";
+import { optionsOf, useOptions } from "./nmts/options.ts";
+import type { AccountInfo, GetOptions, GetToOptions, NmtsOptions, WalletAddressOptions } from "./nmts/options.ts";
 import { putVia } from "./nmts/uploading.ts";
 import { nodeSeams } from "./node-seams.ts";
-import {
-  makeFolderAt,
-  moveTo,
-  removeToTrash,
-  renameTo,
-  restoreFromTrash,
-  type MkdirResult,
-  type MoveResult,
-  type RemoveResult,
-  type RenameResult,
-  type RestoreResult,
-} from "./organise.ts";
+import { makeFolderAt, moveTo, removeToTrash, renameTo, restoreFromTrash } from "./organise.ts";
+import type { MkdirResult, MoveResult, RemoveResult, RenameResult, RestoreResult } from "./organise.ts";
+import * as links from "./links.ts";
+import { publicCodesOn, type PublicCodes } from "./public-codes.ts";
 import type { HeavyPut, HeavyPutOptions, HeavyReview, PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
 import type { PayerOptions } from "./pay.ts";
@@ -69,15 +48,8 @@ import { addressOfWallet, setActiveWallet, wallets, type ActiveWallet, type Wall
 
 // The shapes a caller hands in and gets back, and the door this package's own Node-only modules
 // read a client's opened account through. Both entry points and the gateway import them from here.
-export type {
-  AccountInfo,
-  GetOptions,
-  GetToOptions,
-  NmtsOptions,
-  WalletAddressOptions,
-} from "./nmts/options.ts";
-export { insidesOf } from "./nmts/insides.ts";
-export type { ClientInsides } from "./nmts/insides.ts";
+export type { AccountInfo, GetOptions, GetToOptions, NmtsOptions, WalletAddressOptions } from "./nmts/options.ts";
+export { insidesOf, type ClientInsides } from "./nmts/insides.ts";
 
 export class Nmts {
   readonly #root: Root;
@@ -234,6 +206,12 @@ export class Nmts {
    */
   get openers(): Openers {
     return openersOn(this.#account());
+  }
+
+  /** The account's public codes — what other accounts send files to: list, make the next, revoke,
+   *  or derive one offline. The same on every root, because every code comes from the key. */
+  get publicCodes(): PublicCodes {
+    return publicCodesOn(this.#account());
   }
 
   /**
@@ -396,5 +374,27 @@ export class Nmts {
       "Nothing was fetched. Use get(path), which answers the bytes — a page writes them out itself.",
     ).sink(destination, { force: options.force === true });
     return getTo(this.#account(), path, sink, this.#read(), options.thumbnail);
+  }
+
+  /** A public link to one file (NCF-3 §5.8): whoever holds it opens the file, no account needed. */
+  async makeLink(path: string, options: links.MakeLinkOptions = {}): Promise<links.MadeLink> {
+    return links.makeLinkAt(this.#account(), path, options);
+  }
+
+  /** Every link made to one file, newest first, cut ones included; a live one comes back whole. */
+  async listLinks(path: string): Promise<links.ListedLink[]> {
+    return links.listLinksAt(this.#account(), path);
+  }
+
+  /** Cut one link. It reaches no copy already downloaded. */
+  async revokeLink(id: string): Promise<void> {
+    return links.revokeLinkOf(this.#account(), id);
+  }
+
+  /** Open somebody's public link — no account — and get the file, checked, in memory. */
+  static async openLink(link: string, options: links.OpenLinkOptions & NmtsOptions = {}): Promise<links.OpenedLinkBytes> {
+    useOptions(optionsOf(options));
+    const hosts = options.aggregators;
+    return links.openLinkBytes(link, options, hosts === undefined || hosts.length === 0 ? undefined : { hosts });
   }
 }

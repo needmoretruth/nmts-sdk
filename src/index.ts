@@ -55,6 +55,8 @@ export type {
   DelegationOrder,
   EmbeddedRegistration,
   ListedUser,
+  PublicCodeResult,
+  PublicCodeUser,
   RegisteredUser,
   ScopeName,
   UserPage,
@@ -80,6 +82,9 @@ export type {
 } from "./organise.ts";
 // The wallets one NMTS key opens, and which of them pays.
 export type { ActiveWallet, WalletInfo } from "./wallets.ts";
+// The account's public codes, numbered from its one NMTS key, and what each was used for.
+export type { CreatedPublicCode, PublicCodeIdentity, PublicCodeInfo, PublicCodeList, PublicCodes } from "./public-codes.ts";
+export type { CodeActivity, ReceivedThrough, SentThrough } from "@needmoretruth/nmts-cli/portable";
 // Which money buys the storage, and the wallet a caller holds the key to.
 export type { ExternalSigner, PayerOptions, PayFrom } from "./pay.ts";
 export type {
@@ -116,6 +121,7 @@ export type {
   TransferReview,
 } from "./storage.ts";
 export type { GetResult } from "./get.ts";
+export type { ListedLink, MadeLink, MakeLinkOptions, OpenedLinkBytes, OpenLinkOptions } from "./links.ts";
 // Bytes that came from a file picker, a drag, a `fetch` or a canvas. Node has `Blob` too.
 export { blobSource } from "./source-blob.ts";
 

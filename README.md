@@ -257,8 +257,8 @@ await nmts.put("./archive.tar", { tier: "heavy", pay: "evm", copies: 3 });   // 
 - **`{ signer }`**: the same as `"evm"`, from an EVM account you hold.
 
 Credits and `"wallet"` go through NMTS's Filecoin treasury, and a server that has not switched Heavy
-on refuses them with `heavy_unavailable` before anything is charged; nmts.me has not switched it on
-yet. `"evm"` and `{ signer }` do not use the treasury. `dryRun: true` works out the cost and stops.
+on refuses them with `heavy_unavailable` before anything is charged. nmts.me takes credits; its
+`"wallet"` payment is off there and answers `heavy_wallet_pay_off`. `"evm"` and `{ signer }` do not use the treasury. `dryRun: true` works out the cost and stops.
 An option that belongs to the other tier or another payer is refused, not ignored.
 
 ## Many wallets from one key
@@ -290,6 +290,14 @@ await nmts.walletAddress()    // the Sui address of the wallet this account pays
 await nmts.walletAddress({ index: 2 })   // the address of a wallet you name — offline
 await nmts.wallets()          // WalletInfo[]: { index, address, active } — asks the chain
 await nmts.setActiveWallet(2) // which of this key's wallets pays, from now on, on this account
+await nmts.publicCodes.list({ activity: true })   // every public code: live, revoked, what went through it
+await nmts.publicCodes.create({ replace: 0 })     // publish the next code; `replace` revokes one in the same request
+await nmts.publicCodes.revoke(1)                  // for good: nobody can send to it again
+await nmts.publicCodes.identityFor(2)             // { index, code, address } — offline
+await nmts.makeLink("photos/a.jpg", { expiresDays: 30 })  // { link, id, createdAt, expiresAt } — anyone with it opens the file
+await nmts.listLinks("photos/a.jpg")   // every link to that file, cut ones included, with download counts
+await nmts.revokeLink(id)              // cut one; copies already downloaded stay with whoever has them
+await Nmts.openLink(link)              // { name, bytes } — no account; checked against the owner's hash
 await nmts.list()             // Entry[]: { id, path, kind, size, createdAt, updatedAt }, trash left out
 await nmts.list({ trash: true })   // the same, with what is in the trash; those entries carry trashedAt
 await nmts.list({ media: "video" })  // one kind only: "image" | "video" | "audio"
@@ -482,6 +490,7 @@ const token = await business.delegate({
 | `business.usage()` | your server | `{ members, usersToday, usersDayCap, files, storedBytes, asOf }` across the accounts registered under your business, whoever holds their keys |
 | `business.delegate({ user, scope, ttlSecs })` | your server | signs a delegation token for one of your users; nothing is sent. `ttlSecs` is at most 30 days |
 | `business.rotateKey(newPrivateKey)` | your server | replaces the registered key; every token the old key signed stops working at once |
+| `business.setPublicCodes([{ root, next? }])` | wherever the users' roots are | replaces each user's one public code in a signed request per 100 users; each item carries that user's identity and sign-in secret, derived from their root |
 | `Nmts.newAccountCode()` · `Nmts.accountIdOf(code)` | the device | a new NMTS key, and its public id; nothing is sent |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | the device | opens the device's own account with a token that carries `register` |
 
@@ -612,10 +621,10 @@ Two things to know before relying on it:
   it. The ceiling is 16 MiB sealed — about 60,000 files. Past that, use more accounts.
 - **Rate and spend ceilings** exist on the server: one account may spend 4,096 credits (4 GiB) a
   day, and a person must pass the human check every twelve weeks for the things it gates.
-- **Sharing and the recovery list** are in the
+- **Sharing a file and the recovery list** are in the
   [command-line tool](https://github.com/needmoretruth/nmts-cli) as commands (`nmts share`,
   `nmts recovery-list`), not in this package, and that tool does not export them as library calls
-  yet. Both are planned for this package.
+  yet. Both are planned for this package. The account's public codes are here: `publicCodes`.
 
 
 ## Building from source

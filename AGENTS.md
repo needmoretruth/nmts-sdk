@@ -66,6 +66,7 @@ browser) opens accounts for the users of its own product and signs for them.
 | `business.usage()` | one signed request | `{ members, usersToday, usersDayCap, files, storedBytes, asOf }` across the business's accounts |
 | `business.delegate({ user, scope, ttlSecs })` | nothing | a token for one user; at most 30 days; scopes `files_read` · `files_write` · `storage_spend` · `register` · `files_erase` |
 | `business.rotateKey(newPrivateKey)` | one signed request | every token the old key signed stops working at once — ask the person first |
+| `business.setPublicCodes([{ root, next? }])` | one signed request per 100 users | replaces each user's public code; each item is built from that user's root — its identity and sign-in secret — so only a holder of the user's key can build one. One `{ ok, index, code }` or `{ ok: false, error }` per user |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | one request | the device opens its own account; the token must carry `register` |
 
 `erase()` needs the scope `files_erase`; `files_write` alone answers `DELEGATION_SCOPE`. The server also asks
@@ -136,6 +137,7 @@ of them is one.
 | `walletAddress({ index })` | nothing | none | The address of the wallet at that number |
 | `wallets()` | nothing | server + chain | `{ index, address, active }[]`: the wallets this account made, plus any funded one within twenty of them |
 | `setActiveWallet(n)` | nothing | server | Which of this key's wallets pays from now on. Written into the account's sealed list, so every device follows |
+| `publicCodes.list({ activity? })` · `.create({ replace? })` · `.revoke(n)` · `.identityFor(n)` | nothing | server (`identityFor`: none) | The account's public codes, numbered from its NMTS key: list them, publish the next (`replace` revokes one in the same request), revoke one for good, or derive one offline. Refusals arrive as `ServerError` with `TOO_MANY_LIVE_CODES`, `PUBLIC_CODE_DAY_CAP`, `LAST_LIVE_CODE` or `PLATFORM_REPLACE_ONLY` |
 | `list()` | nothing | server | Every live file and folder as `{ id, path, kind, size, createdAt, updatedAt }`. Trash left out |
 | `list({ trash: true })` | nothing | server | The same list with what is in the trash included; those entries carry `trashedAt` |
 | `mkdir(path)` | nothing | server | Makes the folder and any missing folder above it. A folder already there is a success. `{ path, created }` |
@@ -293,9 +295,9 @@ putOptions?, bucketNames?, virtualHostBase?, stagingDir?, log?, now? })`, which 
 
 ## What this library does not do
 
-- **Sharing and the recovery list.** They exist as commands of the command-line tool (`nmts share`,
+- **Sharing a file and the recovery list.** They exist as commands of the command-line tool (`nmts share`,
   `nmts recovery-list`) and are not library calls yet, in this package or in that one. Run the
-  commands; do not look for an import.
+  commands; do not look for an import. The account's public codes are a library call: `publicCodes`.
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.

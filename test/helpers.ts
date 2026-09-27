@@ -23,9 +23,13 @@ export { platformState, resetPlatform } from "../../cli/test/fake-platform.ts";
 // treasury's storage under a file. ⚠ Both refuse a credential that arrives without the account
 // code's proof, exactly as the real server does — so a verb that forgot it cannot pass here.
 export { eraseState } from "../../cli/test/fake-erase.ts";
+// The public-link doors, from that same server: three under the credential, the read under none.
+export { linkState } from "../../cli/test/fake-links.ts";
 // And the four OPENER doors, from that same server: three that refuse a credential arriving
 // without the account code's proof, and one that takes none at all and answers raw bytes.
 export { openerState, testWallet } from "../../cli/test/fake-openers.ts";
+// And the PUBLIC-CODE doors, which keep the numbering and ceiling rules a client can break.
+export { publicCodesState } from "../../cli/test/fake-public-codes.ts";
 export { generateCode, sealFile, sealFileList, type SealedFile } from "../../cli/test/helpers.ts";
 export { apiThat, protocolThat, isolate } from "../../cli/test/upload-fixture.ts";
 export type { Pushed } from "../../cli/test/upload-fixture.ts";

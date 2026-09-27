@@ -39,16 +39,21 @@ test("the package exports one class, and its methods are the ones the README sho
     "get",
     "getTo",
     "list",
+    "listLinks",
+    "makeLink",
     "mergeStorage",
     "mkdir",
     "move",
     // ⚠ A GETTER RATHER THAN A METHOD, and it is on this list for the same reason the methods are:
     //   `nmts.openers` is part of what the README promises, and a promise nothing checks drifts.
     "openers",
+    // ⚠ A getter too, for the same reason: the README shows `nmts.publicCodes.list()` and its three siblings.
+    "publicCodes",
     "put",
     "remove",
     "rename",
     "restore",
+    "revokeLink",
     "setActiveWallet",
     "splitStorage",
     "storage",
