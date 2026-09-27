@@ -38,13 +38,44 @@ test("the resolver is asked once for a name, however many requests carry it", as
   });
 });
 
+test("ListBuckets answers what bucketNames names, narrowed to the buckets the pair is held to", async () => {
+  const gateway = createS3Gateway({
+    credentials: [{ ...PAIR, buckets: ["acme-2", "acme-9"] }],
+    bucket: () => null,
+    bucketNames: async () => ["acme-1", "acme-2"],
+  });
+  const { host, stop } = await mounted(gateway);
+  try {
+    const listed = await call("GET", host, "/");
+    assert.equal(listed.status, 200);
+    const names = [...(await listed.text()).matchAll(/<Name>([^<]+)<\/Name>/g)].map((m) => m[1]);
+    assert.deepEqual(names, ["acme-2"]);
+  } finally {
+    await stop();
+  }
+});
+
+test("⛔ the clock `now` gives is the one a signature's age is judged by", async () => {
+  // Twenty minutes ahead is past the fifteen a signed request is accepted for, so a request signed
+  // on the real clock is refused — which it would not be if the gateway read its own clock instead.
+  const gateway = createS3Gateway({ credentials: [PAIR], bucket: () => null, now: () => Date.now() + 20 * 60_000 });
+  const { host, stop } = await mounted(gateway);
+  try {
+    assert.equal((await call("GET", host, "/")).status, 403);
+  } finally {
+    await stop();
+  }
+});
+
 // ⛔ A LARGE UPLOAD TAKES LONGER THAN THE MINUTE A BUCKET IS REMEMBERED FOR. Re-asking whose bucket
 //    this is must not hand the next piece to a staging that has never heard of the upload.
 test("an upload in pieces goes on after the bucket is asked about again, and ends when the answer is null", async () => {
   await withSandbox(drive(), "sdk-gateway-pieces", async (code) => {
     await drive().serve(code, []);
     const client = Nmts.device({ accountCode: code, apiKey: KEY, server: drive().base, network: "testnet" });
-    let clock = 1_000_000;
+    // ⚠ FROM THE REAL TIME, because this clock also judges how old each signature is — and two
+    //   minutes on is still inside the window a signed request is accepted for.
+    let clock = Date.now();
     let served = true;
     const asked: string[] = [];
     const gateway = createS3Gateway({

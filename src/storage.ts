@@ -41,7 +41,7 @@ import {
 
 import { readList } from "./list.ts";
 import { extendSigner, payerOf, reshapeSigner, type PayerOptions } from "./pay.ts";
-import { delegationScope } from "./root.ts";
+import { currentDelegationScope } from "./root.ts";
 import { withAccount, type Opened } from "./session.ts";
 
 /** One storage resource the account's wallet holds free — bought, and not bound inside a file. */
@@ -239,7 +239,7 @@ export async function extendFile(
     }
     // ⛔ BEFORE THE SIGNATURE. The recording needs `storage_spend`; a token without it would be
     //    refused after the WAL had gone.
-    refuseWithoutSpendScope(opened);
+    await refuseWithoutSpendScope(opened);
 
     // ⚠ A `sign` the caller handed in wins: that is the seam a test drives this verb through.
     const outcome = await applyExtension(input, plan, {
@@ -371,10 +371,11 @@ function walletOf({ budget }: ExtendPlan): StorageWallet {
  *
  * ⛔ BEFORE THE SIGNATURE, because the storage would already be paid for by the time the server
  *    refused to write the new date down. What the token was minted for is in the token, which this
- *    process holds — `delegationScope` reads it.
+ *    process holds — `currentDelegationScope` reads it, asking a token function for the token it
+ *    would send now.
  */
-function refuseWithoutSpendScope(opened: Opened): void {
-  const scope = delegationScope(opened.root.identity);
+async function refuseWithoutSpendScope(opened: Opened): Promise<void> {
+  const scope = await currentDelegationScope(opened.root.identity);
   if (scope === null || (scope & SCOPE_BITS.storage_spend) !== 0) return;
   throw new NmtsError(
     "DELEGATION_SCOPE: this delegation token was minted without `storage_spend`, so the NMTS server " +

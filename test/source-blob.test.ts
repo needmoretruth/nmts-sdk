@@ -11,7 +11,6 @@
 import { strict as assert } from "node:assert";
 import { after, before, test } from "node:test";
 
-import { NmtsError } from "@needmoretruth/nmts-cli/portable";
 import { Nmts } from "../src/index.ts";
 import { openAccount, type Opened } from "../src/session.ts";
 import { putSource, type UploadRail } from "../src/put.ts";
@@ -76,12 +75,10 @@ test("a range is a range: the middle of the blob, not the start of it", async ()
   assert.equal(new TextDecoder().decode(await drainRange(source, 3, 4)), "3456");
 });
 
-test("⛔ an empty blob is refused where it costs nothing, not by the storage network", () => {
-  assert.throws(() => blobSource(new Blob([]), "empty.bin"), (error: unknown) => {
-    assert.ok(error instanceof NmtsError);
-    assert.match(error.message, /empty/);
-    return true;
-  });
+test("an empty blob is an empty file: size 0, and nothing to read", async () => {
+  const source = blobSource(new Blob([]), "empty.bin");
+  assert.equal(source.size, 0);
+  assert.equal((await drainRange(source, 0, 0)).length, 0);
 });
 
 for (const { name, root, opens } of rootsUnderTest()) {

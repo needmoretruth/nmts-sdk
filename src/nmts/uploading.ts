@@ -26,6 +26,7 @@ import {
   type UploadRail,
 } from "../put.ts";
 import { paysFromWallet } from "../pay.ts";
+import { isHeavy, putHeavy, refuseHeavyOnStandard, type HeavyPut, type HeavyPutOptions, type HeavyReview } from "../put-heavy.ts";
 import { putSourceWithWallet } from "../put-wallet.ts";
 import type { Opened } from "../session.ts";
 import { blobSource } from "../source-blob.ts";
@@ -39,10 +40,14 @@ import { blobSource } from "../source-blob.ts";
 export async function putVia(
   opened: Opened,
   file: PutInput | Uint8Array,
-  options: PutOptions,
-): Promise<PutResult | PutReview> {
+  options: PutOptions | HeavyPutOptions,
+): Promise<PutResult | PutReview | HeavyPut | HeavyReview> {
+  // ⛔ THE TIER IS READ FIRST, and each side refuses the other's options before a byte is read.
+  const heavy = isHeavy(options);
+  if (!heavy) refuseHeavyOnStandard(options);
   const { source, name: own } = sourceOf(file);
   const name = options.name ?? own;
+  if (heavy) return putHeavy(opened, source, name, options);
   const { thumbnail, ...rest } = options;
   if (thumbnail === undefined) return putOne(opened, source, name, rest);
   // A video's preview picture is a second, ordinary upload linked to it (gallery spec §7 ·

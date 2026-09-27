@@ -60,7 +60,7 @@ import {
   type RenameResult,
   type RestoreResult,
 } from "./organise.ts";
-import type { PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
+import type { HeavyPut, HeavyPutOptions, HeavyReview, PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
 import type { PayerOptions } from "./pay.ts";
 import * as storageControl from "./storage.ts";
@@ -333,20 +333,20 @@ export class Nmts {
   }
 
   /**
-   * Upload one file. **This spends.** By default it spends credits — one per started MiB of
-   * sealed bytes, for the storage period the account buys uploads for. With `pay: "wallet"` it
-   * spends WAL and SUI out of the wallet the account pays from instead — `wallet: n` names another
-   * of this key's wallets for this one upload — for as many of the storage network's epochs as
-   * `epochs` asks for. With `pay: { signer }` the same WAL and SUI come from a wallet you hold the
-   * key to, which is asked to sign every transaction. None of it comes back, and calling this is the
-   * agreement to that; `dryRun: true` says what it would cost and spends nothing.
-   *
-   * A path names a file on this machine; bytes need a `name`. A name already in use is numbered,
-   * `report (2).pdf`, unless the machine's `nmts on-collision` setting says overwrite.
+   * Upload one file. **This spends.** By default it spends credits — one per started MiB of sealed
+   * bytes, for the storage period the account buys uploads for. `pay: "wallet"` spends WAL and SUI
+   * from the wallet the account pays from — `wallet: n` names another of this key's wallets — for
+   * `epochs` of the storage network's epochs; `pay: { signer }` spends them from a wallet you hold
+   * the key to, asked to sign every transaction. `tier: "heavy"` keeps whole copies on Filecoin,
+   * paid as `HeavyPutOptions` says. None of it comes back, and calling this is the agreement to
+   * that; `dryRun: true` says what it would cost and spends nothing. A path names a file on this
+   * machine; bytes need a `name`. A name already in use is numbered, `report (2).pdf`, unless
+   * `onCollision: "overwrite"` — or, without it, this machine's `nmts on-collision` setting.
    */
+  async put<O extends HeavyPutOptions>(file: PutInput | Uint8Array, options: O): Promise<O extends { dryRun: true } ? HeavyReview : HeavyPut>;
   async put(file: PutInput | Uint8Array, options: PutOptions & { dryRun: true }): Promise<PutReview>;
   async put(file: PutInput | Uint8Array, options?: PutOptions): Promise<PutResult>;
-  async put(file: PutInput | Uint8Array, options: PutOptions = {}): Promise<PutResult | PutReview> {
+  async put(file: PutInput | Uint8Array, options: PutOptions | HeavyPutOptions = {}): Promise<PutResult | PutReview | HeavyPut | HeavyReview> {
     return putVia(this.#account(), file, options);
   }
 

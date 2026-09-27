@@ -19,6 +19,7 @@ import { strict as assert } from "node:assert";
 import { after, before, test } from "node:test";
 
 import { NmtsError, walletAddress } from "@needmoretruth/nmts-cli";
+import { UploadError } from "@needmoretruth/nmts-cli/portable";
 
 import { sealedLenFor } from "../../cli/src/seal.ts";
 import { planAndPrice } from "../../cli/src/upload-price.ts";
@@ -26,6 +27,7 @@ import { bytesSource } from "../src/put.ts";
 import { putSourceWithWallet } from "../src/put-wallet.ts";
 import { openAccount, type Opened } from "../src/session.ts";
 import {
+  entry,
   FEE_MIST,
   KEY,
   MAINNET,
@@ -95,6 +97,20 @@ for (const { name, root, opens } of rootsUnderTest()) {
     });
   });
 
+  test(`[${name}] ⛔ onCollision "overwrite" on the wallet rail keeps the name and trashes what held it`, async () => {
+    await withSandbox(drive, `sdk-put-wallet-overwrite-${name}`, async (code) => {
+      await drive.serve(code, [entry({ id: "i0", name: "notes.txt", size: 3 })]);
+      const { seams } = walletSeams();
+      const result = await putSourceWithWallet(account(code), bytesSource(BYTES), "notes.txt", { pay: "wallet", onCollision: "overwrite" }, seams);
+      assert.equal(result.dryRun, false);
+      if (result.dryRun) return;
+      assert.deepEqual([result.name, result.renamed], ["notes.txt", false]);
+      const written = await drive.lastWritten(code);
+      assert.ok(written.find((e) => e.id === "i0")?.deletedAt !== undefined, "the file that held the name is not in the trash");
+      assert.ok(drive.calls.includes("DELETE /v1/items/i0"), "the server was not told to trash the file it displaced");
+    });
+  });
+
   test(`[${name}] ⛔ a wallet short of WAL is refused with both numbers, before any signature`, async () => {
     await withSandbox(drive, `sdk-put-wallet-short-${name}`, async (code) => {
       await drive.serve(code, []);
@@ -106,6 +122,9 @@ for (const { name, root, opens } of rootsUnderTest()) {
       );
       assert.ok(failure instanceof NmtsError, "a wallet holding one FROST was allowed to sign");
       assert.equal(failure.exitCode, 4);
+      // ⛔ A CODE TO BRANCH ON, on the same class a credit refusal arrives in.
+      assert.ok(failure instanceof UploadError, "a short wallet is not refused as an UploadError");
+      assert.deepEqual([failure.code, failure.paid], ["WALLET_SHORT", false]);
       assert.match(failure.message, /holds 0\.000000001 WAL and this upload costs [0-9.]+ WAL/);
       assert.match(String(failure.nextStep), /Nothing was signed and nothing was sent/);
       assert.deepEqual([sign.registered.length, sign.certified.length], [0, 0], "a short wallet reached a signer");

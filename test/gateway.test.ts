@@ -19,9 +19,45 @@ import { test } from "node:test";
 
 import { createS3Gateway } from "../src/gateway.ts";
 import { Nmts, NmtsError } from "../src/index.ts";
-import { aggregator, call, drive, mounted, PAIR, serveFile } from "./gateway-harness.ts";
+import { aggregator, call, callAs, drive, mounted, PAIR, serveFile } from "./gateway-harness.ts";
 import { entry, KEY, withSandbox } from "./helpers.ts";
 import { rootsUnderTest } from "./roots.ts";
+
+// ── Virtual-hosted style: the bucket in the host ───────────────────────────────────────────────
+
+test("⛔ a virtual-hosted request's bucket is its host and its key the whole path, and the log keeps the key out", async () => {
+  await withSandbox(drive(), "sdk-gateway-vhost", async (code) => {
+    const plaintext = new TextEncoder().encode("addressed by its host\n");
+    await serveFile(code, "notes.txt", plaintext);
+    const client = Nmts.device({
+      accountCode: code,
+      apiKey: KEY,
+      server: drive().base,
+      network: "testnet",
+      aggregators: [aggregator().base],
+    });
+    const lines: string[] = [];
+    const gateway = createS3Gateway({
+      credentials: [{ ...PAIR, buckets: ["acme"] }],
+      bucket: (bucket) => (bucket === "acme" ? client : null),
+      virtualHostBase: "s3.example.test",
+      log: (line) => lines.push(line),
+    });
+    const { host, stop } = await mounted(gateway);
+    const port = Number(host.slice(host.lastIndexOf(":") + 1));
+    try {
+      // ⚠ Read path style, this is bucket `notes.txt` — which the pair is not held to.
+      const got = await callAs(`acme.s3.example.test:${port}`, port, "/notes.txt");
+      assert.equal(got.status, 200);
+      assert.deepEqual(new Uint8Array(got.body), plaintext);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(lines.includes("GET acme 200"), `the log did not name the bucket from the host: ${lines.join(" | ")}`);
+      for (const line of lines) assert.doesNotMatch(line, /notes/, "a log line carried the key");
+    } finally {
+      await stop();
+    }
+  });
+});
 
 // ── The pairs are judged before anything listens ───────────────────────────────────────────────
 //

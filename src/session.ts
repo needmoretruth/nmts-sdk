@@ -26,8 +26,9 @@ import {
   type CryptoGlue,
   type Network,
 } from "@needmoretruth/nmts-cli/portable";
+import { bearerSource } from "@needmoretruth/nmts-cli/api";
 
-import { requireText, type Root } from "./root.ts";
+import { requireText, type DelegationSource, type Root } from "./root.ts";
 
 /** Where an account talks. Not the root's business: one key is one account on any server. */
 export interface ServerOptions {
@@ -49,10 +50,32 @@ export interface Opened {
    * ⛔ NAMED FOR WHAT IT IS RATHER THAN FOR ONE OF THE TWO. Everything under this line hands it
    *    straight to a request, and a field called `apiKey` carrying a delegation token is how a
    *    reader comes to believe a delegated client cannot do something it can.
+   *
+   * ⚠ FOR A `DelegationSource` IT IS A STAND-IN, not a token: the request layer asks the source for
+   *   the current token each time it sends one (`bearerSource` in the command-line package's api).
    */
   readonly bearer: string;
   readonly server: string;
   readonly network: Network;
+}
+
+/**
+ * Forgets a client's delegation source once nothing can reach its opened account any more.
+ *
+ * ⛔ AND NOTHING IS FORGOTTEN IN THE MIDDLE OF A CALL. The stand-in travels as a string, which holds
+ *    nothing alive, so a client dropped while its upload is still running would otherwise lose its
+ *    source between two requests. `withAccount` — the one door every verb goes through — holds the
+ *    opened account in `inUse` until the verb returns.
+ */
+const releaseWhenGone = new FinalizationRegistry<() => void>((release) => release());
+const inUse = new Map<Opened, number>();
+
+/** The bearer for a source: a stand-in the request layer resolves, forgotten with `owner`. */
+function sourcedBearer(source: DelegationSource, owner: (bearer: string) => Opened): Opened {
+  const { bearer, release } = bearerSource(source);
+  const opened = owner(bearer);
+  releaseWhenGone.register(opened, release);
+  return opened;
 }
 
 /** The account WHILE one call holds its code — everything the library surface underneath takes. */
@@ -73,6 +96,13 @@ export interface Held {
  */
 export function openAccount(root: Root, options: ServerOptions = {}): Opened {
   const identity = root.identity;
+  // ⚠ A source is only asked when a request leaves, so there is nothing to check here beyond that
+  //   it is one; what it answers is checked every time it is asked.
+  if (identity.kind === "delegation" && typeof identity.token === "function") {
+    const server = resolveServer(options.server);
+    const network = resolveNetwork(server, options.network);
+    return sourcedBearer(identity.token, (bearer) => ({ root, bearer, server, network }));
+  }
   const bearer =
     identity.kind === "api-key"
       ? requireText(
@@ -100,16 +130,23 @@ export function openAccount(root: Root, options: ServerOptions = {}): Opened {
  *    parsed it. It is a pure function of the code, and the code is only here.
  */
 export async function withAccount<T>(opened: Opened, body: (held: Held) => Promise<T>): Promise<T> {
-  return opened.root.withCode(async (code) => {
-    const identity = await identityOf(code);
-    return body({
-      code,
-      bearer: opened.bearer,
-      server: opened.server,
-      network: opened.network,
-      accountId: identity.accountId,
+  inUse.set(opened, (inUse.get(opened) ?? 0) + 1);
+  try {
+    return await opened.root.withCode(async (code) => {
+      const identity = await identityOf(code);
+      return body({
+        code,
+        bearer: opened.bearer,
+        server: opened.server,
+        network: opened.network,
+        accountId: identity.accountId,
+      });
     });
-  });
+  } finally {
+    const left = (inUse.get(opened) ?? 1) - 1;
+    if (left > 0) inUse.set(opened, left);
+    else inUse.delete(opened);
+  }
 }
 
 /**

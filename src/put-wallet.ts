@@ -34,6 +34,7 @@ import {
 
 import { readList } from "./list.ts";
 import { blobSigners, requirePayerAddress, signerOf } from "./pay.ts";
+import { collisionOf } from "./put/collision.ts";
 import {
   DEFAULT_PART_BYTES,
   destinationOf,
@@ -88,6 +89,7 @@ export async function putSourceWithWallet(
   //    the opening of a business's sealed store.
   const payer = signer === null ? null : { address: requirePayerAddress(signer.address) };
   const named = options.wallet === undefined ? null : requireWalletIndex(options.wallet);
+  const collision = collisionOf(options.onCollision);
   // ⛔ ONE BORROW FOR THE WHOLE RAIL. The code seals the file AND derives the wallet that signs,
   //    so `WalletPutContext.code` is the same borrowed copy the list was opened with rather than a
   //    second opening of a business's store partway through a call that is about to spend.
@@ -108,6 +110,7 @@ export async function putSourceWithWallet(
         //    the review names has to be the address that signs, and asking for the number later
         //    would let those two differ.
         wallet: named ?? activeWallet,
+        ...collision,
         // ⛔ AND WHEN SOMEBODY ELSE'S WALLET PAYS, IT IS PRICED INSTEAD OF THAT NUMBER. Everything
         //    the review says — the quote's sender, both balances, the measured fee, where to send
         //    coins — then names the wallet that will sign.

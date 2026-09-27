@@ -27,11 +27,12 @@ import {
   request,
   resolveServer,
   rotationProof,
+  ServerError,
   signBusinessRequest,
   type ScopeName,
 } from "@needmoretruth/nmts-cli/portable";
 
-/** The four things a delegation token may carry, by name. The command-line package owns the list. */
+/** The five things a delegation token may carry, by name. The command-line package owns the list. */
 export type { ScopeName } from "@needmoretruth/nmts-cli/portable";
 
 /** Where a business talks. The network is not among these: no door here touches a chain. */
@@ -85,6 +86,46 @@ export interface RegisteredUser {
   accountCode?: string;
 }
 
+/** One account a business made, as a listing names it. The NMTS key is never in a listing. */
+export type ListedUser = Omit<RegisteredUser, "accountCode">;
+
+/** One page of the accounts a business made. */
+export interface UserPage {
+  users: ListedUser[];
+  /** The account id to pass as `after` for the page that follows, or null when this was the last. */
+  next: string | null;
+}
+
+/** What `users` is asked for. */
+export interface UserPageOrder {
+  /** The last account id of the page before. Absent = from the first account. */
+  after?: string | undefined;
+  /** How many at most, 1 to 1000. Absent = the server's own page size. */
+  limit?: number | undefined;
+}
+
+/** What a business's accounts hold, as the server counted it at `asOf`. */
+export interface BusinessUsage {
+  /** Accounts this business has made. */
+  members: number;
+  /** Accounts made today, and the ceiling it is held to. */
+  usersToday: number;
+  usersDayCap: number;
+  /** Files across those accounts, not counting the trash. */
+  files: number;
+  /**
+   * The sealed sizes of those files, added up — the bytes each account's own summary reports as
+   * used. Not the trash, and not what the storage network adds on top (erasure coding, a blob's
+   * fixed cost).
+   */
+  storedBytes: number;
+  /** ISO 8601, UTC. */
+  asOf: string;
+}
+
+/** The most accounts one page of `users` may name. */
+export const USERS_PAGE_MAX = 1000;
+
 /** What `delegate` is asked for. */
 export interface DelegationOrder {
   /** The account id of the user this token speaks for. */
@@ -108,6 +149,10 @@ export interface Business {
    * about it comes back.
    */
   registerUser(of?: { accountCode: string }): Promise<RegisteredUser>;
+  /** One page of the accounts this business made. Follow `next` until it is null to see them all. */
+  users(order?: UserPageOrder): Promise<UserPage>;
+  /** How many accounts, files and stored bytes this business's users hold, as the server counts them. */
+  usage(): Promise<BusinessUsage>;
   /** Mint a token that lets one of this business's users act, for a while, within a scope. */
   delegate(order: DelegationOrder): Promise<string>;
   /**
@@ -152,14 +197,36 @@ export function businessClient(credentials: BusinessCredentials & BusinessOption
   const { accountId, privateKey } = credentials;
   const server = resolveServer(credentials.server);
 
-  /** One signed request. The body is turned into JSON once, and that is what is signed. */
+  /**
+   * One signed request. The body is turned into JSON once, and that is what is signed.
+   *
+   * ⛔ `path` CARRIES ITS QUERY STRING, AND THE ONE STRING IS BOTH SIGNED AND SENT. A signature over
+   *    the path alone would let whoever carries the request change which page it asks for.
+   *
+   * ⛔ EVERY ATTEMPT IS SIGNED AFRESH (2026-09-24). The server takes a signature once, and one that
+   *    reached a door is spent whatever the answer was — so `request`'s own retry of a read, which
+   *    sends the same bearer again, came back 409 `BUSINESS_REQUEST_REPLAYED` after a 5xx or an
+   *    answer that never arrived. `request` is asked for one attempt, and a read is repeated here.
+   *    A write is not repeated, exactly as `request` never repeated one without an idempotency key.
+   */
   const signed = async (method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<unknown> => {
-    const text = body === undefined ? "" : JSON.stringify(body);
-    const token = signBusinessRequest({ accountId, privateKey, method, path, body: new TextEncoder().encode(text) });
-    // ⚠ `body`, not `text`: the request serialises the same value again — one object, one encoder,
-    //   one process, the same bytes. Handing over the string would send a JSON string instead of
-    //   the object the server parses.
-    return await request(server, path, body === undefined ? { method, token } : { method, body, token });
+    const bytes = new TextEncoder().encode(body === undefined ? "" : JSON.stringify(body));
+    const once = async (): Promise<unknown> => {
+      const token = signBusinessRequest({ accountId, privateKey, method, path, body: bytes });
+      // ⚠ `body`, not its text: the request serialises the same value again — one object, one
+      //   encoder, one process, the same bytes. Handing over the string would send a JSON string
+      //   instead of the object the server parses.
+      return await request(server, path, { method, token, retryBudgetMs: 0, ...(body === undefined ? {} : { body }) });
+    };
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await once();
+      } catch (error) {
+        const wait = method === "GET" ? waitBeforeAnother(attempt, error) : null;
+        if (wait === null) throw error;
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+    }
   };
 
   return {
@@ -174,6 +241,14 @@ export function businessClient(credentials: BusinessCredentials & BusinessOption
       // ⛔ ANSWERED ONLY WHEN THIS CALL MADE IT. Handing back a code the caller already had would
       //    put a second copy of it somewhere the caller did not choose.
       return of === undefined ? { ...made, accountCode: code } : made;
+    },
+
+    async users(order: UserPageOrder = {}): Promise<UserPage> {
+      return readUserPage(await signed("GET", `/p1/users${pageQuery(order)}`));
+    },
+
+    async usage(): Promise<BusinessUsage> {
+      return readUsage(await signed("GET", "/p1/usage"));
     },
 
     async delegate(order: DelegationOrder): Promise<string> {
@@ -230,8 +305,66 @@ function readInfo(answer: unknown): BusinessInfo {
 }
 
 function readUser(answer: unknown): RegisteredUser {
-  const row = field(answer, "account");
+  return readRow(field(answer, "account"));
+}
+
+function readRow(row: unknown): ListedUser {
   return { accountId: text(row, "account_id"), createdAt: text(row, "created_at"), status: text(row, "status") };
+}
+
+/**
+ * `?after=…&limit=…`, in that order, or nothing.
+ *
+ * ⛔ A LIMIT THE SERVER WOULD REFUSE IS REFUSED HERE, before a signature is spent on it. A number
+ *    rounded into range instead would be a page the caller did not ask for.
+ */
+function pageQuery(order: UserPageOrder): string {
+  const { after, limit } = order;
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > USERS_PAGE_MAX)) {
+    throw new NmtsError(`\`limit\` is ${limit}, and a page holds 1 to ${USERS_PAGE_MAX} accounts.`, {
+      exitCode: 2,
+      nextStep: "Nothing was sent. Pass a whole number in that range, or leave `limit` out.",
+    });
+  }
+  const parts: string[] = [];
+  if (after !== undefined) parts.push(`after=${encodeURIComponent(after)}`);
+  if (limit !== undefined) parts.push(`limit=${limit}`);
+  return parts.length === 0 ? "" : `?${parts.join("&")}`;
+}
+
+/**
+ * How long to wait before signing a read again, or null to throw. ⚠ The failures `request` repeats —
+ * 408, 429, a 5xx, a server not reached — and no others: a refusal is an answer. Four attempts, 1 s,
+ * 2 s, 4 s apart (longer if the server says so, up to 20 s), plus up to a second of jitter.
+ */
+function waitBeforeAnother(attempt: number, error: unknown): number | null {
+  const status = error instanceof ServerError ? error.status : 0;
+  const unreached = status === 0 && error instanceof NmtsError && /^Could not reach /.test(error.message);
+  if (!(unreached || status === 408 || status === 429 || status >= 500) || attempt >= 4) return null;
+  const wait = Math.max(error instanceof ServerError ? (error.retryAfter ?? 0) * 1000 : 0, 1000 * 2 ** (attempt - 1));
+  return wait > 20_000 ? null : wait + Math.floor(Math.random() * 1000);
+}
+
+function readUserPage(answer: unknown): UserPage {
+  const rows = field(answer, "users");
+  if (!Array.isArray(rows)) throw unreadable("users");
+  const next = field(answer, "next");
+  // ⚠ ABSENT IS NOT "THE LAST PAGE". Read that way, an answer missing the field would end a walk
+  //   through every account partway, and it would look like a finished one.
+  if (next !== null && typeof next !== "string") throw unreadable("next");
+  return { users: rows.map(readRow), next };
+}
+
+function readUsage(answer: unknown): BusinessUsage {
+  const row = field(answer, "usage");
+  return {
+    members: count(row, "members"),
+    usersToday: count(row, "users_today"),
+    usersDayCap: count(row, "users_day_cap"),
+    files: count(row, "files"),
+    storedBytes: count(row, "stored_bytes"),
+    asOf: text(row, "as_of"),
+  };
 }
 
 function field(from: unknown, name: string): unknown {

@@ -88,6 +88,55 @@ test("the server's own ceiling arrives as the refusal it is", async () => {
   await assert.rejects(client.registerUser(), /registered/);
 });
 
+test("⛔ users() pages through every account, and the page it asks for is inside the signature", async () => {
+  const client = business();
+  const ids = [21, 22, 23, 24, 25].map((n) => toBase64Url(new Uint8Array(16).fill(n)));
+  platformState.members = ids.map((id) => ({ account_id: id, created_at: "2026-09-17T00:00:00Z", status: "active" }));
+  const seen: string[] = [];
+  let after: string | undefined;
+  for (;;) {
+    // ⛔ THE FAKE REBUILDS THE SIGNED SENTENCE FROM THE WHOLE TARGET THAT ARRIVED, so a page is
+    //    only answered when the query string it names was signed as it was sent.
+    const page = await client.users({ after, limit: 2 });
+    seen.push(...page.users.map((u) => u.accountId));
+    for (const user of page.users) assert.deepEqual(Object.keys(user).sort(), ["accountId", "createdAt", "status"]);
+    if (page.next === null) break;
+    after = page.next;
+  }
+  assert.deepEqual(seen, ids);
+  assert.ok(drive.calls.includes(`GET /p1/users?after=${ids[1]}&limit=2`), "the second page was not asked for by the id before it");
+  assert.equal((await client.users()).users.length, ids.length, "no order at all did not start at the first account");
+});
+
+test("⛔ a page size the server would refuse is refused before anything is signed or sent", async () => {
+  const client = business();
+  const before = drive.calls.length;
+  for (const limit of [0, 1001, 2.5, -1]) {
+    await assert.rejects(client.users({ limit }), (error: unknown) => {
+      assert.ok(error instanceof NmtsError);
+      assert.equal(error.exitCode, 2);
+      assert.match(error.message, /1 to 1000/);
+      return true;
+    });
+  }
+  assert.equal(drive.calls.length, before, "a refused page size reached the server");
+});
+
+test("usage() reads what the business's accounts hold, field by field", async () => {
+  const client = business();
+  await client.registerUser();
+  platformState.files = 12;
+  platformState.storedBytes = 3_145_728;
+  assert.deepEqual(await client.usage(), {
+    members: 1,
+    usersToday: 1,
+    usersDayCap: 1000,
+    files: 12,
+    storedBytes: 3_145_728,
+    asOf: "2026-09-24T00:00:00Z",
+  });
+});
+
 test("⛔ delegate() mints a token locally, sends nothing, and refuses more than thirty days", async () => {
   const client = business();
   const before = drive.calls.length;

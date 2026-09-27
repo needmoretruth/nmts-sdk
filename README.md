@@ -234,6 +234,33 @@ An upload that is interrupted after the storage was bought is finished by the ne
 same file to the same place, **without spending again**: what was bought is written down on this
 machine before the money moves (in the same config directory the command-line tool uses).
 
+## NMTS Heavy — `tier: "heavy"`
+
+`put(file, { tier: "heavy" })` keeps each part of the file whole on Filecoin, with separate storage
+companies each holding a copy, instead of spreading it across Walrus storage nodes. It is sealed
+exactly as a Standard upload is, and `get()`, `list()` and deletion work the same for both tiers.
+
+```ts
+await nmts.put("./archive.tar", { tier: "heavy" });                          // credits
+await nmts.put("./archive.tar", { tier: "heavy", pay: "evm", copies: 3 });   // your own Filecoin deposit
+```
+
+`pay` says who pays:
+
+- **Credits** (the default): each part costs half the Standard credits, rounded up and at least one,
+  and the file is kept 28 days.
+- **`"wallet"`**: WAL from one of this key's Sui wallets, for `days` (1 to 365, default 28), paid once
+  every part is stored.
+- **`"evm"`**: the EVM wallet this NMTS key derives pays Filecoin directly from its Filecoin Pay
+  deposit, as the Synapse SDK would; `evmWallet` picks another of its wallets. `copies` (1 to 12,
+  default 2) and `providers` choose where.
+- **`{ signer }`**: the same as `"evm"`, from an EVM account you hold.
+
+Credits and `"wallet"` go through NMTS's Filecoin treasury, and a server that has not switched Heavy
+on refuses them with `heavy_unavailable` before anything is charged; nmts.me has not switched it on
+yet. `"evm"` and `{ signer }` do not use the treasury. `dryRun: true` works out the cost and stops.
+An option that belongs to the other tier or another payer is refused, not ignored.
+
 ## Many wallets from one key
 
 The NMTS key derives a wallet at every number from 0 upwards, and each is a real wallet with an
@@ -329,9 +356,10 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
 - **Paths** are as `list()` prints them: `photos/2026/cat.jpg`. `to: "photos/2026"` puts a file in
   that folder, which must already exist (`mkdir()` makes it).
 - **A name already in use** is numbered — `report (2).pdf` — rather than replacing what is there.
-  NMTS keeps no previous versions, so replacing would be permanent loss. The command-line tool's
-  `nmts on-collision` setting on this machine can change that to overwrite (the old file goes to
-  the trash, restorable for 30 days).
+  `onCollision: "overwrite"` stores the new file under the name and sends the old one to the
+  trash, restorable for 30 days; `onCollision: "rename"` numbers it. Either applies to that one
+  call. Without it, the command-line tool's `nmts on-collision` setting on this machine decides,
+  and it renames unless someone set it to overwrite.
 - **What `put()` answers** says `paid: "credits" | "wallet"`. A credit-paid upload reports
   `credits`; a wallet-paid one reports `credits: 0` with `wal` and `sui` — the chains' smallest
   units, FROST and MIST, as decimal strings — and the `endEpoch` its storage runs to. `dryRun: true`
@@ -351,6 +379,11 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
 Every failure is an `NmtsError` with a `nextStep` sentence and an `exitCode` that means the same
 as the command-line tool's; a refusal from the server is a `ServerError` carrying the server's own
 code. A refusal is not a transient error and must not be retried in a loop.
+
+An upload that fails is an `UploadError`, and `paid` says whether money already moved. When the
+server refused it, `code`, `status` and `retryAfter` (seconds, or null) are the server's; a wallet
+known to be short before anything was signed is `code: "WALLET_SHORT"`. Branch on `code`, not on
+the sentence.
 
 ## Wallet login
 
@@ -445,6 +478,8 @@ const token = await business.delegate({
 | `business.info()` | your server | the registered public key, the name, accounts opened today, the daily limit, and `keyChangedAt` — when the key was last replaced, or null |
 | `business.registerUser()` | your server | opens an account and returns its new NMTS key, once |
 | `business.registerUser({ accountCode })` | your server | opens the account of a code you already hold |
+| `business.users({ after?, limit? })` | your server | one page of the accounts registered under your business — by your server or by a device holding its own key — `{ users: [{ accountId, createdAt, status }], next }`; pass `next` as `after` until it is null. `limit` is 1 to 1000 |
+| `business.usage()` | your server | `{ members, usersToday, usersDayCap, files, storedBytes, asOf }` across the accounts registered under your business, whoever holds their keys |
 | `business.delegate({ user, scope, ttlSecs })` | your server | signs a delegation token for one of your users; nothing is sent. `ttlSecs` is at most 30 days |
 | `business.rotateKey(newPrivateKey)` | your server | replaces the registered key; every token the old key signed stops working at once |
 | `Nmts.newAccountCode()` · `Nmts.accountIdOf(code)` | the device | a new NMTS key, and its public id; nothing is sent |
@@ -458,6 +493,13 @@ place of `apiKey` in `Nmts.device()` and `Nmts.managed()`, and every method work
 cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
 those with `DELEGATION_SCOPE`.
 
+In `Nmts.device()` and `Nmts.managed()`, `delegation` may also be a function that returns the
+current token, directly or as a promise — `delegation: () => tokens.currentFor(user)`. It is called
+before every request to the NMTS server, retries included, so a client you keep for one user keeps
+working after a token runs out, also in the middle of an upload whose storage is already paid for.
+The client keeps no copy of what it returns; if minting a token costs a round trip, return the one
+you hold until it is near its end.
+
 ## An S3 gateway you run yourself
 
 `@needmoretruth/nmts-sdk/gateway` is the S3 server behind `nmts s3`, as a function your own server
@@ -465,7 +507,7 @@ calls. A storage adapter in Django, Rails or Laravel, a backup tool or an image 
 S3 then reads and writes NMTS accounts with its usual endpoint setting. Node only.
 
 ```js
-import { createS3Gateway } from "@needmoretruth/nmts-sdk/gateway";
+import { createS3Gateway, GATEWAY_SERVER_OPTIONS } from "@needmoretruth/nmts-sdk/gateway";
 
 const gateway = createS3Gateway({
   credentials: [{ accessKeyId, secretAccessKey, buckets: ["acme-user-17"] }],
@@ -473,24 +515,48 @@ const gateway = createS3Gateway({
   write: true,
 });
 await gateway.listen(9000);                  // 127.0.0.1 unless you pass a host
-// or mount it in a server of your own: https.createServer(tls, gateway.handler)
+// or in a server of your own: https.createServer({ ...GATEWAY_SERVER_OPTIONS, ...tls }, gateway.handler)
 ```
 
 - **A bucket is an account.** `bucket(name)` answers the `Nmts` client for that name, or `null` for
   `NoSuchBucket`. The answer is remembered for a minute (a `null` for five seconds), for at most 256
-  names, so taking a user's access away takes up to a minute to show here.
+  names. Call `gateway.forget(name)` when you give a bucket to another user or take it away: the next
+  request asks again. An upload in pieces stays with the account it began under and is refused once
+  the bucket names another.
 - **`buckets` on a key pair is the wall between your users.** A pair held to named buckets gets
   `AccessDenied` for any other name, with the same answer whether or not that bucket exists. There
   are 1 to 16 pairs; `accessKeyId` is 16 to 128 characters and `secretAccessKey` at least 32, and a
   weaker pair throws `GATEWAY_CREDENTIALS` when the gateway is made.
 - **`write` is off unless you turn it on**, and then an upload spends what `put()` spends. A delete
   is `remove()`: the trash, restorable for 30 days. A key that already holds a different file is
-  refused with `409`; the same file again is a `200` that sends and spends nothing.
+  refused with `409`, unless `overwrite: "replace"`: then the new file is stored and the old one goes
+  to the trash, which is what S3 clients expect a PUT to do. The same file again is a `200` that
+  sends and spends nothing, either way. `If-None-Match: *` and `If-Match` are honoured. A key ending
+  in `/` with no bytes makes that folder; an empty object is stored like any other file.
+- **`putOptions(bucket, meta)` decides who pays for each upload.** Without it every upload spends
+  the account's credits. It answers `{ pay?, epochs?, storage? }`, meaning what they mean to
+  `put()`; `meta` is the client's `storageClass` (from `x-amz-storage-class`, upper-cased) and
+  `contentType`, so a storage class can choose a term. Anything else it answers is ignored.
+- **`bucketNames()`** is what `ListBuckets` answers, narrowed to what the signing pair may touch.
+  Without it, a pair held to `buckets` is told those and an unrestricted pair is told none.
+- **`virtualHostBase: "s3.example.com"`** serves virtual-hosted requests: `acme.s3.example.com/a/b.txt`
+  is bucket `acme`, key `a/b.txt`. Other hosts stay path style, `/acme/a/b.txt`.
 - **Between the S3 client and the gateway the files are not encrypted.** That is what S3 clients
   send. Keep the gateway on loopback or a private network, or mount `handler` behind your own TLS.
+- **Limits that protect your machine:** `maxObjectBytes` (none unless you set it; `EntityTooLarge`
+  above it, counted on the bytes that arrive), `maxConcurrentWrites` (16) and `maxUploadsPerBucket`
+  (1,000), each answered `SlowDown` beyond it.
+- **A server of your own** needs `GATEWAY_SERVER_OPTIONS`, or Node ends every upload that takes more
+  than five minutes to arrive; answer its `checkContinue` event with `gateway.refusalBeforeBody(req)`
+  so a refused upload never sends its body. `listen` does both.
 - An upload in pieces is kept in `stagingDir` until it completes: by default a folder of the
   gateway's own under the system's temporary directory, readable by your user alone, which `close()`
-  removes. `log` gets one line per answered request — method, bucket and status, never a file name.
+  removes. In a folder you name, what this gateway left there and nothing touched for a day is
+  removed when it starts and every hour. `log` gets one line per answered request — method, bucket,
+  status and why it failed, never a file name.
+- **ETags are not MD5s**, including an upload in pieces (`"<32 hex>-1"`). rclone with
+  `provider = AWS` checks a multipart ETag against its parts and reports "Etag differ" on a file that
+  stored correctly; use `provider = Other`, or `use_multipart_etag = false`.
 
 ## Where it connects, and through what
 

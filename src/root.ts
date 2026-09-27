@@ -42,7 +42,25 @@ export type RootMode = "device" | "managed";
  *   the support inbox — are refused there, and that refusal arrives as the same `NmtsError` every
  *   other refusal does. A list kept on this side would be a second copy, going quietly stale.
  */
-export type Identity = { kind: "api-key"; apiKey: string } | { kind: "delegation"; token: string };
+export type Identity =
+  | { kind: "api-key"; apiKey: string }
+  | { kind: "delegation"; token: string | DelegationSource };
+
+/**
+ * A function that answers the CURRENT delegation token, asked before each request to the NMTS
+ * server — the way an AWS credential provider is asked.
+ *
+ * ⛔ FOR A CLIENT THAT OUTLIVES ITS TOKEN. A token is minted for minutes; a client a business keeps
+ *    for one of its users lives for as long as the process does, and an upload can outlast a token
+ *    on its own — after the storage is already paid for, with the file still to be named in the
+ *    list. A string is fixed when the client is made; this is asked at the moment each request
+ *    leaves, retries included, so it can answer a fresh token once the old one is near its end.
+ *
+ * ⚠ IT IS ASKED OFTEN — every request, and a verb makes several — so a source that mints over the
+ *   network should answer a token it holds until that one is close to running out. What it answers
+ *   is not kept by this package.
+ */
+export type DelegationSource = () => string | Promise<string>;
 
 /** Something that holds one account's NMTS key and will lend it for the length of one piece of work. */
 export interface Root {
@@ -65,8 +83,13 @@ export type ServerCredential =
       delegation?: undefined;
     }
   | {
-      /** Minted by the business this account belongs to. Good until it runs out; cannot be withdrawn. */
-      delegation: string;
+      /**
+       * Minted by the business this account belongs to. Good until it runs out; cannot be withdrawn.
+       *
+       * The token itself, or a function that answers the current one (`DelegationSource`), asked
+       * before each request — for a client that lives longer than one token does.
+       */
+      delegation: string | DelegationSource;
       apiKey?: undefined;
     };
 
@@ -98,7 +121,8 @@ export type ManagedCredentials = {
  */
 export function credentialIdentity(from: ServerCredential): Identity {
   const hasKey = typeof from.apiKey === "string" && from.apiKey.trim().length > 0;
-  const hasToken = typeof from.delegation === "string" && from.delegation.trim().length > 0;
+  const hasToken =
+    typeof from.delegation === "function" || (typeof from.delegation === "string" && from.delegation.trim().length > 0);
   if (hasKey && hasToken) {
     throw new NmtsError("Both an API key and a delegation token were given; a client speaks with one.", {
       exitCode: 2,
@@ -183,10 +207,26 @@ export function managedRoot(source: ManagedCredentials): Root {
  *   token FOR, which is the one thing a caller can act on BEFORE spending. A token this cannot read
  *   is not a token anything may refuse on: every request before a signature already went through the
  *   server, which is the authority on what a token opens.
+ *
+ * ⚠ A `DelegationSource` has no token to read until it is asked, so this answers null for one;
+ *   `currentDelegationScope` asks it.
  */
 export function delegationScope(identity: Identity): number | null {
-  if (identity.kind !== "delegation" || !identity.token.startsWith(DELEGATION_PREFIX)) return null;
-  const payload = identity.token.slice(DELEGATION_PREFIX.length).split(".")[0];
+  if (identity.kind !== "delegation" || typeof identity.token !== "string") return null;
+  return scopeOf(identity.token);
+}
+
+/** The same, for either form of the token: a source is asked for the one it holds now. */
+export async function currentDelegationScope(identity: Identity): Promise<number | null> {
+  if (identity.kind !== "delegation") return null;
+  if (typeof identity.token === "string") return scopeOf(identity.token);
+  const token: unknown = await identity.token();
+  return typeof token === "string" ? scopeOf(token.trim()) : null;
+}
+
+function scopeOf(token: string): number | null {
+  if (!token.startsWith(DELEGATION_PREFIX)) return null;
+  const payload = token.slice(DELEGATION_PREFIX.length).split(".")[0];
   if (payload === undefined || payload === "") return null;
   try {
     const parsed: unknown = JSON.parse(fromUtf8(fromBase64Url(payload)));

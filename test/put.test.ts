@@ -14,10 +14,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 
+import { host } from "@needmoretruth/nmts-cli/portable";
+
 import { testConfigDir } from "../../cli/src/credentials.ts";
 import { Nmts, NmtsError } from "../src/index.ts";
 import { openAccount, type Opened } from "../src/session.ts";
-import { bytesSource, putSource, type UploadRail } from "../src/put.ts";
+import { bytesSource, putSource, type PutOptions, type UploadRail } from "../src/put.ts";
 import { apiThat, entry, folder, KEY, protocolThat, startFakeDrive, withSandbox, type FakeDrive } from "./helpers.ts";
 import { rootsUnderTest } from "./roots.ts";
 
@@ -92,6 +94,46 @@ for (const { name, root, opens } of rootsUnderTest()) {
       assert.equal(result.renamed, true);
       const written = await drive.lastWritten(code);
       assert.deepEqual(written.map((e) => e.name).sort(), ["hello (2).txt", "hello.txt"]);
+    });
+  });
+
+  // ⛔ WITH NO AUTONOMY MODE ON, which is what this host holds: a bare "overwrite" from a command
+  //    line would be renamed here, so an overwrite that lands proves the call went down as the
+  //    program's own choice.
+  test(`[${name}] ⛔ onCollision "overwrite" keeps the name and sends the file that held it to the trash`, async () => {
+    await withSandbox(drive, `sdk-put-overwrite-${name}`, async (code) => {
+      await drive.serve(code, [entry({ id: "i0", name: "hello.txt", size: 3 })]);
+      const opened = account(code);
+      const result = await putSource(opened, bytesSource(new Uint8Array(3)), "hello.txt", { onCollision: "overwrite" }, railThat().rail);
+      assert.deepEqual([result.name, result.renamed], ["hello.txt", false]);
+      const written = await drive.lastWritten(code);
+      assert.ok(written.find((e) => e.id === "i0")?.deletedAt !== undefined, "the file that held the name is not in the trash");
+      assert.ok(written.some((e) => e.id === result.id && e.name === "hello.txt" && e.deletedAt === undefined));
+      assert.ok(drive.calls.includes("DELETE /v1/items/i0"), "the server was not told to trash the file it displaced");
+    });
+  });
+
+  test(`[${name}] onCollision "rename" holds for this call even where the machine is set to overwrite`, async () => {
+    await withSandbox(drive, `sdk-put-rename-${name}`, async (code) => {
+      await drive.serve(code, [entry({ id: "i0", name: "hello.txt", size: 3 })]);
+      await host().state.write("collision", new TextEncoder().encode(JSON.stringify({ onCollision: "overwrite" })));
+      try {
+        const result = await putSource(account(code), bytesSource(new Uint8Array(3)), "hello.txt", { onCollision: "rename" }, railThat().rail);
+        assert.deepEqual([result.name, result.renamed], ["hello (2).txt", true]);
+        assert.ok(!drive.calls.includes("DELETE /v1/items/i0"), "a rename sent a file to the trash");
+      } finally {
+        await host().state.remove("collision");
+      }
+    });
+  });
+
+  test(`[${name}] ⛔ an onCollision that is neither word is refused before the key is taken out`, async () => {
+    await withSandbox(drive, `sdk-put-badcollide-${name}`, async (code) => {
+      const { rail, calls } = railThat();
+      const asked: PutOptions = JSON.parse('{"onCollision":"overwite"}');
+      await assert.rejects(putSource(account(code), bytesSource(new Uint8Array(3)), "x.txt", asked, rail), /"rename" or "overwrite"/);
+      assert.equal(calls.reserve, 0);
+      assert.equal(opens(), 0, "the key was taken out for an upload refused for its own options");
     });
   });
 

@@ -14,6 +14,13 @@
 //    and whether that client holds the key on this machine, in a business's sealed store or behind
 //    a delegation token is a question nothing below this line asks.
 //
+// ⛔ WHAT OUTLIVES AN ANSWER FROM `bucket(name)` IS MADE ONCE, HERE, AND NEVER CARRIED IN ONE. The
+//    answer is remembered for a minute and then asked again; an upload in pieces takes longer than
+//    that, and two uploads to one key can straddle it. So the staging of pieces and the per-key
+//    locks belong to the gateway, and every drive built from an answer is handed them. A finish is
+//    stored through the drive the bucket has when the finish arrives — with the token and the
+//    account that has now, never the ones it had when the upload began.
+//
 // ⚠ BETWEEN AN S3 CLIENT AND THIS GATEWAY THE FILES ARE PLAINTEXT. Sealing happens on this side of
 //   it. `listen` binds loopback unless told otherwise, and anywhere else belongs behind TLS or on a
 //   private network — the caller's own `https.createServer(tls, gateway.handler)` is the other way.
@@ -21,25 +28,39 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  createDriveSource,
-  fetchObject,
+  checkContinueHandler,
+  createKeyLocks,
+  createStagingStore,
   gatewayHandler,
+  refusalBeforeBody,
+  SWEEP_EVERY_MS,
   type DriveSource,
-  type GatewayCredential,
-  type Staging,
+  type EarlyRefusal,
+  type GatewayOptions,
+  type WriteMeta,
 } from "@needmoretruth/nmts-cli/s3-gateway";
 import { NmtsError } from "@needmoretruth/nmts-cli/portable";
 
-import { readList } from "./list.ts";
-import { insidesOf, type Nmts } from "./nmts.ts";
-import { withAccount } from "./session.ts";
+import { driveOf, type DriveSetup, type GatewayPutOptions } from "./gateway/drive.ts";
+import { gatewayServer } from "./gateway/listen.ts";
+import { logEach } from "./gateway/log.ts";
+import { checkedCredentials, type GatewayPair } from "./gateway/pairs.ts";
+import type { Nmts } from "./nmts.ts";
 
-/** How long an answer from `bucket(name)` is reused. */
+/** What the client sent about one upload: its `x-amz-storage-class` and its `Content-Type`. */
+export type { WriteMeta } from "@needmoretruth/nmts-cli/s3-gateway";
+
+export type { GatewayPutOptions } from "./gateway/drive.ts";
+
+/** What a key that already holds a different file does with an upload. */
+export type GatewayOverwrite = "replace" | "refuse";
+
+/** How long an answer from `bucket(name)` is reused, unless `forget(name)` drops it first. */
 export const BUCKET_CACHE_MS = 60_000;
 
 /** How many names are remembered at once. The least recently used goes first. */
@@ -52,29 +73,12 @@ const READ_ONLY_BECAUSE =
 /** How long "no such bucket" is remembered. Short, so a bucket just added is served soon. */
 export const MISSING_BUCKET_CACHE_MS = 5_000;
 
-/** An access key id shorter than this is a guessable one. */
-export const MIN_ACCESS_KEY_ID = 16;
-/** And longer than this is not a key, it is a payload. */
-export const MAX_ACCESS_KEY_ID = 128;
-/** A secret shorter than this is worth guessing at. */
-export const MIN_SECRET_ACCESS_KEY = 32;
-/** More pairs than this is a sign that the pairs are being used as a user table. */
-export const MAX_CREDENTIALS = 16;
-
-/** One pair a caller may sign with, and what it is allowed to reach. */
-export interface GatewayPair {
-  /** 16 to 128 characters. Not a secret: it travels in the clear in every request. */
-  accessKeyId: string;
-  /** At least 32 characters. Never leaves this process and is never logged. */
-  secretAccessKey: string;
-  /**
-   * The only buckets this pair may touch. Absent means every bucket `bucket()` will answer for.
-   *
-   * ⛔ THIS IS WHAT KEEPS ONE OF YOUR USERS OUT OF ANOTHER'S ACCOUNT. A pair given to a user's
-   *    device, with no list here, opens every account your resolver knows.
-   */
-  buckets?: readonly string[] | undefined;
-}
+export { MAX_CONCURRENT_WRITES, MAX_UPLOADS_PER_BUCKET } from "@needmoretruth/nmts-cli/s3-gateway";
+export { RECEIVE_IDLE_MS } from "./gateway/listen.ts";
+export { GATEWAY_SERVER_OPTIONS } from "@needmoretruth/nmts-cli/s3-gateway";
+export type { EarlyRefusal } from "@needmoretruth/nmts-cli/s3-gateway";
+export { MAX_ACCESS_KEY_ID, MAX_CREDENTIALS, MIN_ACCESS_KEY_ID, MIN_SECRET_ACCESS_KEY } from "./gateway/pairs.ts";
+export type { GatewayPair } from "./gateway/pairs.ts";
 
 export interface S3GatewayOptions {
   /** One to sixteen pairs. Checked when the gateway is made, not when a request arrives. */
@@ -84,6 +88,10 @@ export interface S3GatewayOptions {
    *
    * ⛔ A BUCKET IS AN ACCOUNT, and which account is yours to decide: one per user, one per tenant,
    *    one for the whole product. Whichever client you answer with, the gateway treats the same.
+   *
+   * ⚠ AN ANSWER IS REMEMBERED FOR `BUCKET_CACHE_MS` (a "no" for `MISSING_BUCKET_CACHE_MS`). When
+   *   you bind a bucket to a user, move it to another, or remove it, call `forget(name)` so the next
+   *   request asks again instead of reaching the account it used to name.
    */
   bucket: (name: string) => Promise<Nmts | null> | Nmts | null;
   /**
@@ -94,150 +102,134 @@ export interface S3GatewayOptions {
    */
   write?: boolean | undefined;
   /**
-   * Where the pieces of a multipart upload wait until they are one file.
+   * What an upload to a key that already holds a DIFFERENT file does. `"refuse"` unless you say.
+   *
+   * `"refuse"` answers 409 and the file at the key stays as it was. `"replace"` stores the new
+   * bytes and sends the old file to the trash, where it can be restored for 30 days — what an S3
+   * client expects a PUT to do. The same bytes at the same key are neither: nothing is sent, nothing
+   * is spent, and the upload is answered as done.
+   */
+  overwrite?: GatewayOverwrite | undefined;
+  /**
+   * Which money pays for one upload, and for how long, decided per bucket and per request.
+   *
+   * Absent, every upload spends the account's credits, which is `put()`'s own default. `meta` is
+   * what the client sent, so a storage class can choose a rail and a term:
+   * `STANDARD_IA` → `{ pay: "wallet", epochs: 26 }`. ⚠ `epochs` is the wallet's to choose — on
+   * credits the term is fixed, and `put()` refuses `epochs` there. Only `pay`, `epochs` and
+   * `storage` are read from the answer; they mean what they mean to `put()`.
+   */
+  putOptions?: ((bucket: string, meta: WriteMeta) => GatewayPutOptions | Promise<GatewayPutOptions>) | undefined;
+  /**
+   * The bucket names `ListBuckets` answers with, before each pair's own `buckets` narrows them.
+   *
+   * Absent, a pair held to `buckets` is told those names and an unrestricted pair is told none:
+   * the gateway cannot list your users by itself.
+   */
+  bucketNames?: (() => readonly string[] | Promise<readonly string[]>) | undefined;
+  /**
+   * The host name buckets live under, for virtual-hosted-style requests. With `"s3.example.com"`,
+   * a request to `acme.s3.example.com` is bucket `acme` and its whole path is the key. A request to
+   * any other host is path style, `/acme/key`, as it is without this.
+   */
+  virtualHostBase?: string | undefined;
+  /**
+   * Where each upload's bytes, and the pieces of a multipart upload, wait until they are stored.
    *
    * The default is a folder of this gateway's own under the OS temporary directory, mode 0700,
-   * removed by `close()`. A directory you name is yours: this writes under it and leaves it.
+   * removed by `close()`. A directory you name is yours: this writes under it and leaves it — and,
+   * when the gateway starts and every hour after, removes from it what this gateway's own names
+   * made and nothing has touched for a day (a crash's leftovers). Several processes may share one.
    */
   stagingDir?: string | undefined;
-  /** Told one line per request answered. See `logLine` below for what a line may carry. */
+  /**
+   * The most bytes one object may have — an upload, one part of one, a finished upload in parts, or
+   * a copy's source. Counted on the bytes that arrive, not on what a header says. One past it is
+   * `EntityTooLarge`. Absent: no limit but the upload path's own.
+   */
+  maxObjectBytes?: number | undefined;
+  /**
+   * How many writes — uploads, parts, finishes, copies, deletes — run at once across every bucket.
+   * One past it is answered 503 `SlowDown` with `Retry-After`. `MAX_CONCURRENT_WRITES` (16) unless
+   * you say.
+   */
+  maxConcurrentWrites?: number | undefined;
+  /**
+   * How many uploads in parts one bucket may have begun and not finished. One past it is 503
+   * `SlowDown`. `MAX_UPLOADS_PER_BUCKET` (1,000) unless you say.
+   */
+  maxUploadsPerBucket?: number | undefined;
+  /** Told one line per request answered: the verb, the bucket and the status, never a key. */
   log?: ((line: string) => void) | undefined;
-  /** Passed in so a test can hold the clock still. */
+  /**
+   * The clock, in milliseconds, for how long a bucket is remembered and how old a signature may be.
+   * Passed in so a test can hold it still.
+   */
   now?: (() => number) | undefined;
 }
 
+/**
+ * An S3 endpoint in front of NMTS accounts.
+ *
+ * ⚠ AN UPLOAD IN PARTS IS TAGGED `"<32 hex>-1"`, like every object here, and never the MD5 of its
+ *   parts' MD5s: the tag is the file list's, and the file list keeps no MD5. A client that checks a
+ *   multipart tag against the parts it sent reports a mismatch on a file that stored correctly —
+ *   rclone with `provider = AWS` does ("Etag differ"); set `use_multipart_etag = false`
+ *   (`--s3-use-multipart-etag=false`) there, or use `provider = Other`.
+ */
 export interface S3Gateway {
   /**
    * A plain Node request handler, for mounting in a server of your own:
    * `https.createServer(tls, gateway.handler)`.
+   *
+   * ⚠ A SERVER OF YOUR OWN KEEPS NODE'S `requestTimeout` (300 s) unless you set it, and that ends
+   *   any upload that takes longer to arrive. Make it with `GATEWAY_SERVER_OPTIONS`, as `listen`
+   *   does; the handler itself drops a request whose body stops arriving for `RECEIVE_IDLE_MS`.
+   *   Answer `Expect: 100-continue` with `refusalBeforeBody` (Node's `checkContinue` event), or
+   *   Node sends `100 Continue` before the signature is checked.
    */
   readonly handler: (req: IncomingMessage, res: ServerResponse) => void;
+  /**
+   * What the request's line and headers alone will be refused with — a signature that does not
+   * hold, a bucket the pair may not use — or null. For a server of your own that answers
+   * `Expect: 100-continue` itself: answer the refusal with `Connection: close` and skip the body,
+   * or send `100 Continue` and pass the request to `handler`.
+   */
+  refusalBeforeBody(req: IncomingMessage): EarlyRefusal | null;
   /** Listen on a server of this gateway's own. Loopback unless `host` says otherwise. */
   listen(port: number, host?: string): Promise<{ port: number; host: string }>;
-  /** Stop listening, drop every connection, and remove the staging folder this gateway made. */
+  /**
+   * Drop what `bucket(name)` answered for this name, at once, so the next request asks again.
+   *
+   * Call it whenever you bind a bucket to a user, move it to another user, unbind it or delete the
+   * user: until then the gateway may serve the account the name used to belong to, for up to
+   * `BUCKET_CACHE_MS`. Uploads in parts are not dropped by this — they belong to the account they
+   * began under, and are refused and removed the first time the bucket names another.
+   */
+  forget(bucket: string): void;
+  /**
+   * Stop listening, drop every connection, wait for every upload still being stored, and remove the
+   * staging folder this gateway made.
+   */
   close(): Promise<void>;
-}
-
-function refuseCredentials(rule: string): NmtsError {
-  return new NmtsError(`GATEWAY_CREDENTIALS: ${rule}`, {
-    exitCode: 2,
-    nextStep: "Nothing is listening and nothing was opened. Fix the pair and make the gateway again.",
-  });
-}
-
-/**
- * Every rule about the pairs, answered before anything listens.
- *
- * ⛔ AT CONSTRUCTION AND NOT AT THE FIRST REQUEST. A gateway that accepted a four-character secret
- *    and refused requests later would be a gateway that came up, passed a smoke test with the one
- *    client that had the right pair, and was brute-forced by the time anybody read a log.
- */
-function checkedCredentials(given: readonly GatewayPair[]): readonly GatewayCredential[] {
-  if (given.length === 0) {
-    throw refuseCredentials("`credentials` is empty, so no request could ever be answered.");
-  }
-  if (given.length > MAX_CREDENTIALS) {
-    throw refuseCredentials(
-      `\`credentials\` holds ${given.length} pairs and the most this gateway takes is ${MAX_CREDENTIALS}.`,
-    );
-  }
-  const seen = new Set<string>();
-  const checked: GatewayCredential[] = [];
-  for (const pair of given) {
-    const id = pair.accessKeyId;
-    if (id.length < MIN_ACCESS_KEY_ID || id.length > MAX_ACCESS_KEY_ID) {
-      throw refuseCredentials(
-        `an \`accessKeyId\` is ${id.length} characters and it has to be ${MIN_ACCESS_KEY_ID} to ${MAX_ACCESS_KEY_ID}.`,
-      );
-    }
-    if (pair.secretAccessKey.length < MIN_SECRET_ACCESS_KEY) {
-      throw refuseCredentials(
-        `a \`secretAccessKey\` is ${pair.secretAccessKey.length} characters and it has to be at least ${MIN_SECRET_ACCESS_KEY}.`,
-      );
-    }
-    if (seen.has(id)) {
-      throw refuseCredentials("two pairs have the same `accessKeyId`, so which one signs is undecidable.");
-    }
-    seen.add(id);
-    checked.push({
-      accessKeyId: id,
-      secretAccessKey: pair.secretAccessKey,
-      ...(pair.buckets === undefined ? {} : { buckets: pair.buckets }),
-    });
-  }
-  return checked;
-}
-
-/**
- * One client as a drive: its list, its reader, and the three verbs a write goes through.
- *
- * ⛔ THE VERBS ARE THE CLIENT'S OWN. An upload is `put`, a delete is `remove` — the trash, where
- *    the file stays recoverable for thirty days — and the folders above a key are `mkdir`. Writing
- *    a second upload path here would be a second place for what an upload costs to be decided.
- */
-function driveOf(
-  client: Nmts,
-  stagingRoot: string,
-  writable: boolean,
-  multipart: Staging | undefined,
-): DriveSource {
-  const inside = insidesOf(client);
-  return createDriveSource({
-    stagingRoot,
-    writable,
-    multipart,
-    account: {
-      readList: async () => withAccount(inside.opened(), async (held) => (await readList(held)).entries),
-      withCode: (use) => inside.opened().root.withCode(use),
-      makeFolder: async (path) => {
-        await client.mkdir(path);
-      },
-      store: async (local, name, folder) => {
-        await client.put(local, { name, ...(folder === undefined ? {} : { to: folder }) });
-      },
-      trash: async (path) => {
-        await client.remove(path);
-      },
-      fetch: (object, sink) => {
-        const read = inside.read();
-        return withAccount(inside.opened(), (held) =>
-          fetchObject(
-            {
-              server: held.server,
-              bearer: held.bearer,
-              code: held.code,
-              chain: held.network,
-              ...(read === undefined ? {} : { read }),
-            },
-            object,
-            sink,
-          ),
-        );
-      },
-    },
-  });
-}
-
-/**
- * What a log line may carry: the verb, the bucket, and what was answered.
- *
- * ⛔ NOT THE OBJECT KEY, AND NOT THE SIGNATURE. A key is a file's path and a path is a file name,
- *    which is exactly the thing this product keeps from the server it stores on; written to a log
- *    on the way past it would be that name in plaintext, on disk, for as long as logs are kept.
- *    The bucket is already the business's own label for an account, so it is the one it can look up.
- */
-function logLine(req: IncomingMessage, res: ServerResponse): string {
-  const url = req.url ?? "/";
-  const at = url.indexOf("?");
-  const path = at < 0 ? url : url.slice(0, at);
-  const bucket = path.replace(/^\//, "").split("/")[0] ?? "";
-  return `${req.method ?? "?"} ${bucket === "" ? "-" : bucket} ${res.statusCode}`;
 }
 
 /** What `bucket(name)` answered, and when. */
 interface Remembered {
   readonly at: number;
   readonly source: DriveSource | null;
+}
+
+/** A limit as given, refused when it is not a whole number of at least one. */
+function limitOf(name: string, value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new NmtsError(`GATEWAY_LIMIT: \`${name}\` is a whole number of at least 1, not ${JSON.stringify(value)}.`, {
+      exitCode: 2,
+      nextStep: "Nothing is listening. Leave it out for the default.",
+    });
+  }
+  return value;
 }
 
 /**
@@ -255,20 +247,49 @@ interface Remembered {
 export function createS3Gateway(options: S3GatewayOptions): S3Gateway {
   const credentials = checkedCredentials(options.credentials);
   const writable = options.write === true;
+  const overwrite = options.overwrite ?? "refuse";
+  // ⛔ A WORD THAT IS NEITHER IS REFUSED, NOT READ AS ONE OF THEM. `overwrite: true` read as
+  //    "refuse" would look like it worked until the first sync failed; read as "replace" it would
+  //    send files to the trash nobody agreed to.
+  if (overwrite !== "replace" && overwrite !== "refuse") {
+    throw new NmtsError(`GATEWAY_OVERWRITE: \`overwrite\` is "replace" or "refuse", not ${JSON.stringify(overwrite)}.`, {
+      exitCode: 2,
+      nextStep: "Nothing is listening. Leave it out to refuse a different file at a taken key, which is the default.",
+    });
+  }
+  const maxObjectBytes = limitOf("maxObjectBytes", options.maxObjectBytes);
+  const maxConcurrentWrites = limitOf("maxConcurrentWrites", options.maxConcurrentWrites);
+  const maxUploadsPerBucket = limitOf("maxUploadsPerBucket", options.maxUploadsPerBucket);
   const own = options.stagingDir === undefined;
   const stagingRoot = options.stagingDir ?? join(tmpdir(), `nmts-gateway-${process.pid}-${randomUUID()}`);
   // ⛔ MADE NOW, 0700, SO NOTHING LATER HAS TO ASK. Pieces of an upload are somebody's plaintext,
   //    and a directory made under a predictable name later, under whatever mask the process
   //    happens to have, is where another account on the machine reads them.
   if (own) mkdirSync(stagingRoot, { recursive: true, mode: 0o700 });
+  const staging = createStagingStore(stagingRoot, {
+    sweepEveryMs: SWEEP_EVERY_MS,
+    ...(maxUploadsPerBucket === undefined ? {} : { maxUploadsPerBucket }),
+  });
+  const setup: DriveSetup = {
+    stagingRoot,
+    staging,
+    locks: createKeyLocks(),
+    writable,
+    overwrite,
+    maxObjectBytes,
+    putOptions: options.putOptions,
+  };
 
   /**
    * What `bucket(name)` answered, for a minute.
    *
    * ⛔ A RESOLVER IS SOMEBODY'S DATABASE. A sync tool makes thousands of requests and every one of
    *    them names a bucket; asking per request would put that load on the business's own lookup.
-   *    ⚠ The minute is also how long it takes for a change there — a user removed, a bucket added
-   *      — to be seen here.
+   *    ⚠ The minute is also how long a change there — a user removed, a bucket moved — takes to be
+   *      seen here, unless the business says so with `forget(name)`.
+   *
+   * ⛔ NOTHING BUT THE ANSWER IS KEPT HERE, so forgetting it, or evicting it, loses nothing else:
+   *    uploads in parts live in `staging`, which no entry of this map owns.
    */
   const remembered = new Map<string, Remembered>();
   const bucketOf = async (name: string): Promise<DriveSource | null> => {
@@ -284,12 +305,7 @@ export function createS3Gateway(options: S3GatewayOptions): S3Gateway {
       return held.source;
     }
     const client = await options.bucket(name);
-    // ⛔ THE STAGING IS CARRIED OVER. A large upload arrives in pieces over more than a minute, and
-    //    a staging made fresh with every re-ask would answer its next piece "no upload is in
-    //    progress with that id". When the business now answers null, nothing is carried: the
-    //    upload ends with the access.
-    const carried = held?.source?.write?.multipart;
-    const source = client === null ? null : driveOf(client, stagingRoot, writable, carried);
+    const source = client === null ? null : driveOf(client, name, setup);
     remembered.delete(name);
     remembered.set(name, { at: now, source });
     while (remembered.size > BUCKET_CACHE_MAX) {
@@ -300,12 +316,28 @@ export function createS3Gateway(options: S3GatewayOptions): S3Gateway {
     return source;
   };
 
-  const answer = gatewayHandler({ credentials, bucketOf, readOnlyBecause: READ_ONLY_BECAUSE });
-  const log = options.log;
+  const { bucketNames, virtualHostBase } = options;
+  const gatewayOptions: GatewayOptions = {
+    credentials,
+    bucketOf,
+    readOnlyBecause: READ_ONLY_BECAUSE,
+    ...(maxConcurrentWrites === undefined ? {} : { maxConcurrentWrites }),
+    ...(bucketNames === undefined ? {} : { bucketNames }),
+    // ⚠ THE SAME CLOCK FOR A SIGNATURE'S AGE AS FOR THE BUCKET CACHE, so a test that holds one
+    //   still is not signing against the other.
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(virtualHostBase === undefined ? {} : { virtualHostBase }),
+  };
+  const answer = gatewayHandler(gatewayOptions);
+  const logged = logEach(options.log, virtualHostBase);
   const handler = (req: IncomingMessage, res: ServerResponse): void => {
-    // `close` rather than `finish`, so a request whose caller hung up is one line too.
-    if (log !== undefined) res.once("close", () => log(logLine(req, res)));
+    logged(req, res);
     answer(req, res);
+  };
+  const continueCheck = checkContinueHandler(gatewayOptions, answer);
+  const onContinue = (req: IncomingMessage, res: ServerResponse): void => {
+    logged(req, res);
+    continueCheck(req, res);
   };
 
   let server: Server | null = null;
@@ -318,7 +350,7 @@ export function createS3Gateway(options: S3GatewayOptions): S3Gateway {
           nextStep: "Make a second gateway for a second port, or call close() first.",
         });
       }
-      const made = createServer(handler);
+      const made = gatewayServer(handler, onContinue);
       server = made;
       await new Promise<void>((resolve, reject) => {
         const failed = (error: Error): void => {
@@ -335,6 +367,12 @@ export function createS3Gateway(options: S3GatewayOptions): S3Gateway {
       const bound = made.address();
       return { port: bound !== null && typeof bound === "object" ? bound.port : port, host };
     },
+    refusalBeforeBody(req: IncomingMessage): EarlyRefusal | null {
+      return refusalBeforeBody(req, gatewayOptions);
+    },
+    forget(bucket: string): void {
+      remembered.delete(bucket);
+    },
     async close(): Promise<void> {
       const made = server;
       server = null;
@@ -346,6 +384,10 @@ export function createS3Gateway(options: S3GatewayOptions): S3Gateway {
         });
       }
       remembered.clear();
+      // ⛔ A FINISH STILL STORING IS WAITED FOR before anything is removed: its store is reading the
+      //    joined file out of the staging folder, and removing it underneath would fail an upload
+      //    the client was told had been accepted.
+      await staging.close();
       // Nothing half-uploaded outlives the gateway that was staging it — but a directory the
       // caller named is the caller's, and this only made one when it was not given one.
       if (own) await rm(stagingRoot, { recursive: true, force: true });

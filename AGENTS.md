@@ -62,6 +62,8 @@ browser) opens accounts for the users of its own product and signs for them.
 | `Nmts.business({ accountId, privateKey })` | nothing | server-side only; in a page it throws `BUSINESS_IN_A_PAGE` |
 | `business.info()` | one signed request | `usersToday` and `usersDayCap`; past the cap the server answers `PLATFORM_USER_CAP` with `Retry-After` |
 | `business.registerUser()` | one signed request | returns the new `accountCode` once — store it sealed, never log it |
+| `business.users({ after?, limit? })` | one signed request | `{ users: [{ accountId, createdAt, status }], next }`; pass `next` as `after` until it is null; `limit` 1 to 1000, anything else refused before sending |
+| `business.usage()` | one signed request | `{ members, usersToday, usersDayCap, files, storedBytes, asOf }` across the business's accounts |
 | `business.delegate({ user, scope, ttlSecs })` | nothing | a token for one user; at most 30 days; scopes `files_read` · `files_write` · `storage_spend` · `register` · `files_erase` |
 | `business.rotateKey(newPrivateKey)` | one signed request | every token the old key signed stops working at once — ask the person first |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | one request | the device opens its own account; the token must carry `register` |
@@ -72,6 +74,11 @@ for the NMTS key's proof on that request, which the client makes from the key it
 A delegation token takes the place of `apiKey` in `Nmts.device()` and `Nmts.managed()`. It cannot
 delete the account, make API keys or reach the key that opens the files (`DELEGATION_SCOPE`), and
 an expired one answers `DELEGATION_EXPIRED` — ask the business's server for a new one; do not retry.
+
+`delegation` may also be a function returning the current token (a string or a promise of one). It
+is called before every request, retries included, so a long-lived client keeps working once the
+function returns fresh tokens. A function that throws, or returns an empty string, stops the call
+before anything is sent.
 
 ## What only a person can do, once
 
@@ -105,7 +112,9 @@ limits; this library cannot do any of them, on purpose.
 4. **Do not invent methods.** `dist/index.d.ts` is the list.
 5. **A refusal is not a transient error.** Every failure is an `NmtsError` with `exitCode` and
    `nextStep`; a `ServerError` carries the server's own `code`. Read `nextStep` before deciding
-   what went wrong, and do not retry a refusal in a loop.
+   what went wrong, and do not retry a refusal in a loop. A failed upload is an `UploadError`:
+   `paid` says whether money moved, and a server refusal keeps its `code`, `status` and
+   `retryAfter`; a wallet known to be short is `code: "WALLET_SHORT"`, before anything is signed.
 
 **`CHAIN_UNCERTAIN` is the one refusal where retrying can cost money.** It means nobody knows
 whether the storage was registered. Call `list()` first and look for the file; a second `put()` of
@@ -135,7 +144,7 @@ of them is one.
 | `remove(paths)` | nothing | server | To the trash, restorable for 30 days; a folder takes everything under it. Not erasure: the file keeps its storage. `{ removed }` |
 | `erase(paths, { confirm, releaseStorage? })` | nothing | server | ⛔ **Permanent.** Erases the server's record, this account's key to the file and its list entry; a folder erases every file under it. `confirm` must be `ERASE_CONFIRM` ("I UNDERSTAND THIS IS PERMANENT") word for word, or nothing is sent (`ERASE_NOT_CONFIRMED`). Ask the person before you write that call, every time. `{ erased, storage }` |
 | `restore(paths)` | nothing | server | Back out of the trash. `{ restored }` |
-| `put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` or `pay: { signer }` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`. `wallet`, `epochs` and `storage` are refused unless a wallet is paying, and `wallet` with `pay: { signer }` is `TWO_PAYERS` |
+| `put(file, { name?, to?, onCollision?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` or `pay: { signer }` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`; `onCollision: "overwrite"` stores under the name and sends the old file to the trash (30 days), `"rename"` numbers it, for that call only; absent, this machine's `nmts on-collision` setting decides. `wallet`, `epochs` and `storage` are refused unless a wallet is paying, and `wallet` with `pay: { signer }` is `TWO_PAYERS` |
 | `get(path, { maxBytes? })` | nothing | server + storage network | Whole file in memory, checked first. Refuses over 256 MiB unless raised — use `getTo` |
 | `getTo(path, destination, { force? })` | nothing | server + storage network | Streams to disk through a temporary name; refuses an existing file unless `force`. Node only |
 | `blobSource(blob, name)` | nothing | none | A `Blob` as an upload's bytes, for a file picker, a drag or a `fetch` |
@@ -256,9 +265,9 @@ do the same in your `sign`.
 
 ## The S3 gateway
 
-`@needmoretruth/nmts-sdk/gateway` exports `createS3Gateway({ credentials, bucket, write?,
-stagingDir?, log? })`, which answers `{ handler, listen(port, host?), close() }`. It is Node only and
-is not in the browser entry.
+`@needmoretruth/nmts-sdk/gateway` exports `createS3Gateway({ credentials, bucket, write?, overwrite?,
+putOptions?, bucketNames?, virtualHostBase?, stagingDir?, log?, now? })`, which answers
+`{ handler, listen(port, host?), close() }`. It is Node only and is not in the browser entry.
 
 - `credentials`: 1 to 16 pairs `{ accessKeyId, secretAccessKey, buckets? }`. `accessKeyId` is 16 to
   128 characters, `secretAccessKey` at least 32. They are checked when the gateway is made, and a
@@ -268,6 +277,16 @@ is not in the browser entry.
   most once a minute per name. A pair with `buckets` is refused `AccessDenied` for every other name.
 - `write` defaults to `false`: every upload and delete is refused with a sentence saying so. With
   `write: true` **an upload spends what `put()` spends**, and a delete is `remove()` — the trash.
+- `overwrite` is `"refuse"` unless set: a different file at a taken key is `409`. `"replace"`
+  stores it and sends the old file to the trash. Identical bytes are a `200` that spends nothing
+  either way. Any other value throws `GATEWAY_OVERWRITE` when the gateway is made.
+- `putOptions(bucket, meta)` answers `{ pay?, epochs?, storage? }` for one upload; nothing else in
+  the answer is read. `meta` is `{ storageClass, contentType }` from the request, each null when
+  absent. Without it, uploads spend the account's credits.
+- `bucketNames()` is what `ListBuckets` answers, narrowed to the signing pair's `buckets`.
+- `virtualHostBase: "s3.example.com"` reads the bucket from a `Host` of `<bucket>.s3.example.com`
+  (any port) and the whole path as the key; every other request stays path style.
+- `now` is the clock for the bucket cache and for how old a signed request may be.
 - `listen(port)` binds `127.0.0.1` and answers `{ port, host }`. Another host is the person's
   decision, not yours: between an S3 client and the gateway the files are not encrypted. `handler` is
   a plain `(req, res)` function for a server the person already runs behind TLS.

@@ -21,12 +21,7 @@ const READ_CHUNK_BYTES = 4 * 2 ** 20;
  * caller may not want. It is not read from the blob so that the two cases look the same.
  */
 export function blobSource(blob: Blob, name: string): PlaintextSource & { name: string } {
-  if (blob.size === 0) {
-    throw new NmtsError(`${name === "" ? "That blob" : name} is empty.`, {
-      exitCode: 4,
-      nextStep: "The storage network has nothing to store and would refuse the reservation.",
-    });
-  }
+  // An empty blob is an empty file: sealed, it is a header and one empty final chunk.
   return {
     name,
     size: blob.size,

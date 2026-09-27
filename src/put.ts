@@ -22,12 +22,10 @@
 
 import {
   addEntry,
-  clearItemRecord,
-  clearReservation,
   CREDIT_BYTES,
   folderIdFor,
+  forgetUpload,
   NmtsError,
-  partKeysOf,
   planAndPrice,
   setTrashed,
   UPLOAD_EPOCHS,
@@ -40,6 +38,7 @@ import {
 
 import { readList } from "./list.ts";
 import type { PayFrom } from "./pay.ts";
+import { collisionOf, type OnCollision } from "./put/collision.ts";
 import { withAccount, withDataKey, type Opened } from "./session.ts";
 
 /** 64 MiB — the same part size the command-line tool uses when nobody says otherwise. */
@@ -55,10 +54,15 @@ export interface UploadRail {
 }
 
 export interface PutOptions {
+  /** NMTS Standard, on Walrus — the default. `tier: "heavy"` takes `HeavyPutOptions` instead. */
+  tier?: "standard" | undefined;
   /** The name it gets in the account. Defaults to the local file's own name. Required for bytes. */
   name?: string | undefined;
   /** Destination folder as `list()` prints it, `photos/2026`. The top of the account when absent. */
   to?: string | undefined;
+  /** A name already used in that folder: `"rename"` stores this one as `name (2).ext`; `"overwrite"`
+   * sends the old one to the trash (30 days). Absent = this machine's `nmts on-collision`. */
+  onCollision?: OnCollision | undefined;
   /**
    * How much of the file goes into one part, in bytes. Defaults to 64 MiB.
    *
@@ -179,6 +183,8 @@ export interface WalletPut extends Uploaded {
   endEpoch: number;
 }
 
+export type { HeavyPayFrom, HeavyPut, HeavyPutOptions, HeavyReview } from "./put-heavy.ts";
+
 /** What `put()` answers. Narrow on `paid` to read the numbers of one rail. */
 export type PutResult = CreditsPut | WalletPut;
 
@@ -283,6 +289,7 @@ export async function putSource(
 ): Promise<CreditsPut | CreditsReview> {
   requireName(name);
   refuseWalletOnlyOptions(options);
+  const collision = collisionOf(options.onCollision);
   const destination = destinationOf(options.to);
   const partSize = options.partSize ?? DEFAULT_PART_BYTES;
   // ⛔ THE REFUSALS ABOVE COST NO KEY. Everything from here needs the account's code, and this is
@@ -329,6 +336,7 @@ export async function putSource(
       apiKey: held.bearer,
       code: held.code,
       accountId: held.accountId,
+      ...collision,
       entry: {
         id: result.itemId,
         parentId,
@@ -344,10 +352,9 @@ export async function putSource(
     });
     // ⛔ ONLY NOW, AND EVERY PART. Until the entry is in the list the file is paid for and invisible,
     //    and the records are what let a second call finish the job without spending again.
-    clearItemRecord(result.fileKey);
-    for (const record of partKeysOf(result.fileKey, result.parts)) clearReservation(record);
-    // The displaced file, when this machine is set to overwrite, goes to the trash on the server
-    // only after the new one is in the list — until then the caller still had the file they started with.
+    // ⛔ AWAITED, the parts from the last to the first before the file's own (`forgetUpload` says why).
+    await forgetUpload(result.fileKey, result.parts);
+    // An overwritten file goes to the trash only once the new one is in the list, never before.
     if (added.replaced) await setTrashed(held.server, held.bearer, added.replaced.id, true);
 
     return {

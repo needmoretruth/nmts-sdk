@@ -37,6 +37,7 @@ export type {
 export { deviceRoot, managedRoot } from "./root.ts";
 export type {
   Credentials,
+  DelegationSource,
   Identity,
   ManagedCredentials,
   Root,
@@ -50,10 +51,14 @@ export type {
   BusinessCredentials,
   BusinessInfo,
   BusinessOptions,
+  BusinessUsage,
   DelegationOrder,
   EmbeddedRegistration,
+  ListedUser,
   RegisteredUser,
   ScopeName,
+  UserPage,
+  UserPageOrder,
 } from "./business.ts";
 export type { Entry, ListOptions } from "./list.ts";
 // Wallet sign-in. ⛔ Attaching a wallet lets whoever holds it open every file in the account, from
@@ -80,6 +85,10 @@ export type { ExternalSigner, PayerOptions, PayFrom } from "./pay.ts";
 export type {
   CreditsPut,
   CreditsReview,
+  HeavyPayFrom,
+  HeavyPut,
+  HeavyPutOptions,
+  HeavyReview,
   PutInput,
   PutOptions,
   PutResult,
