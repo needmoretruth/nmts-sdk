@@ -89,4 +89,20 @@ for (const { name, root, opens } of rootsUnderTest()) {
       assert.equal((await nmts.listLinks("memo.txt"))[0]?.link, null, "a cut link came back whole");
     });
   });
+
+  test(`[${name}] every live link is listed with its path, and one call cuts them all`, async () => {
+    await withSandbox(drive, `sdk-links-all-${name}`, async (code) => {
+      await serve(code);
+      const nmts = client(code);
+      const first = await nmts.makeLink("memo.txt");
+      const second = await nmts.makeLink("memo.txt");
+      assert.deepEqual(
+        (await nmts.allLinks()).map((l) => [l.id, l.link, l.path]),
+        [[second.id, second.link, "memo.txt"], [first.id, first.link, "memo.txt"]],
+      );
+      assert.equal(await nmts.revokeAllLinks(), 2);
+      assert.deepEqual(await nmts.allLinks(), []);
+      assert.equal(await nmts.revokeAllLinks(), 0, "asking again cut something");
+    });
+  });
 }

@@ -139,11 +139,7 @@ export class Nmts {
    */
   static registerWithDelegation(options: EmbeddedRegistration & NmtsOptions): Promise<RegisteredUser> {
     useOptions(optionsOf(options));
-    return registerWithDelegation({
-      accountCode: options.accountCode,
-      delegation: options.delegation,
-      server: options.server,
-    });
+    return registerWithDelegation({ accountCode: options.accountCode, delegation: options.delegation, server: options.server });
   }
 
   /**
@@ -155,10 +151,7 @@ export class Nmts {
    * either way. Nothing is read until this is called.
    */
   static fromEnv(options: NmtsOptions = {}): Nmts {
-    const found = nodeSeams(
-      "FROM_ENV_UNAVAILABLE",
-      "There is no environment to read. Pass `accountCode` and `apiKey` to Nmts.device().",
-    ).environment();
+    const found = nodeSeams("FROM_ENV_UNAVAILABLE", "There is no environment to read. Pass `accountCode` and `apiKey` to Nmts.device().").environment();
     return Nmts.device({ ...options, ...found.credentials });
   }
 
@@ -175,11 +168,7 @@ export class Nmts {
 
   /** Which account this is, on which server and network. Offline: derived from the code alone. */
   async account(): Promise<AccountInfo> {
-    return withAccount(this.#account(), async (held) => ({
-      accountId: held.accountId,
-      server: held.server,
-      network: held.network,
-    }));
+    return withAccount(this.#account(), async (held) => ({ accountId: held.accountId, server: held.server, network: held.network }));
   }
 
   /**
@@ -389,6 +378,16 @@ export class Nmts {
   /** Cut one link. It reaches no copy already downloaded. */
   async revokeLink(id: string): Promise<void> {
     return links.revokeLinkOf(this.#account(), id);
+  }
+
+  /** Every live link across the account's files, newest first, each whole and with its file's path. */
+  async allLinks(): Promise<links.AccountLink[]> {
+    return links.allLinksOf(this.#account());
+  }
+
+  /** Cut every live link in one request, all or none, and answer how many. No copy already downloaded is reached. */
+  async revokeAllLinks(): Promise<number> {
+    return links.revokeAllLinksOf(this.#account());
   }
 
   /** Open somebody's public link — no account — and get the file, checked, in memory. */

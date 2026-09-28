@@ -1,4 +1,4 @@
-// Public links (NCF-3 §5.8): the four `nmts link` verbs, with the terminal taken off.
+// Public links (NCF-3 §5.8): the four `nmts link` verbs and `nmts links`, with the terminal taken off.
 //
 // ⛔ THE SAME CODE AS THE COMMAND-LINE TOOL. Making, listing, cutting and opening are the portable
 //    functions `nmts link` runs; this file only finds the file by path and hands over the account.
@@ -8,14 +8,18 @@
 //    same refusal as `get()`.
 
 import {
+  buildIndex,
   entryAt,
+  fullPathOf,
   KIND_FILE,
   listLinks,
+  listLiveLinks,
   makeLink,
   NmtsError,
   openLink,
   resolveNetwork,
   resolveServer,
+  revokeAllLinks,
   revokeLink,
   type LinkAccount,
   type ListedLink,
@@ -78,6 +82,29 @@ export async function listLinksAt(opened: Opened, path: string): Promise<ListedL
 
 export async function revokeLinkOf(opened: Opened, id: string): Promise<void> {
   return withAccount(opened, async (held) => revokeLink(accountOf(held), id));
+}
+
+/** One live link of the account, with the path of the file it opens — null when the list has none. */
+export interface AccountLink extends ListedLink {
+  path: string | null;
+}
+
+/** Every live link across the account's files. The paths come from the sealed list, opened here. */
+export async function allLinksOf(opened: Opened): Promise<AccountLink[]> {
+  return withAccount(opened, async (held) => {
+    const rows = await listLiveLinks(accountOf(held));
+    if (rows.length === 0) return [];
+    const index = buildIndex((await readList(held)).entries);
+    return rows.map((row) => {
+      const entry = index.byId.get(row.itemId);
+      return { ...row, path: entry === undefined ? null : fullPathOf(index, entry) };
+    });
+  });
+}
+
+/** Cut every live link in one request, all or none; answers how many were cut. */
+export async function revokeAllLinksOf(opened: Opened): Promise<number> {
+  return withAccount(opened, async (held) => revokeAllLinks(accountOf(held)));
 }
 
 export async function openLinkBytes(link: string, options: OpenLinkOptions, read: ReadOptions | undefined): Promise<OpenedLinkBytes> {

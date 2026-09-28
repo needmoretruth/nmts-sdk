@@ -297,6 +297,8 @@ await nmts.publicCodes.identityFor(2)             // { index, code, address } �
 await nmts.makeLink("photos/a.jpg", { expiresDays: 30 })  // { link, id, createdAt, expiresAt } — anyone with it opens the file
 await nmts.listLinks("photos/a.jpg")   // every link to that file, cut ones included, with download counts
 await nmts.revokeLink(id)              // cut one; copies already downloaded stay with whoever has them
+await nmts.allLinks()                  // every live link across the account's files, each with its file's path
+await nmts.revokeAllLinks()            // cut every live link in one request; answers how many
 await Nmts.openLink(link)              // { name, bytes } — no account; checked against the owner's hash
 await nmts.list()             // Entry[]: { id, path, kind, size, createdAt, updatedAt }, trash left out
 await nmts.list({ trash: true })   // the same, with what is in the trash; those entries carry trashedAt

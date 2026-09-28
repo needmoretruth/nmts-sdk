@@ -121,7 +121,7 @@ export type {
   TransferReview,
 } from "./storage.ts";
 export type { GetResult } from "./get.ts";
-export type { ListedLink, MadeLink, MakeLinkOptions, OpenedLinkBytes, OpenLinkOptions } from "./links.ts";
+export type { AccountLink, ListedLink, MadeLink, MakeLinkOptions, OpenedLinkBytes, OpenLinkOptions } from "./links.ts";
 // Bytes that came from a file picker, a drag, a `fetch` or a canvas. Node has `Blob` too.
 export { blobSource } from "./source-blob.ts";
 
