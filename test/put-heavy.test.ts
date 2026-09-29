@@ -82,7 +82,7 @@ for (const { name, root } of rootsUnderTest()) {
       assert.deepEqual(committed, [{ paidBy: signer.address }]);
       assert.equal(result.dryRun, false);
       assert.ok(!result.dryRun);
-      assert.deepEqual([result.id, result.paid, result.paidBy, result.expiryEpoch, result.orderId], ["item-h", "evm", signer.address, 3_000, null]);
+      assert.deepEqual([result.id, result.paid, result.paidBy, result.expiryEpoch, result.orderId], ["item-h", "evm", signer.address, 1_000 + 2_000 + 86_400, null]);
       const written = await drive.lastWritten(code);
       assert.equal(written.find((e) => e.name === "h.txt")?.id, "item-h");
     });
