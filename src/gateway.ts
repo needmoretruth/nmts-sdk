@@ -44,13 +44,17 @@ import {
   type GatewayOptions,
   type WriteMeta,
 } from "@needmoretruth/nmts-cli/s3-gateway";
-import { NmtsError } from "@needmoretruth/nmts-cli/portable";
+import { identifyClient, NmtsError } from "@needmoretruth/nmts-cli/portable";
 
 import { driveOf, type DriveSetup, type GatewayPutOptions } from "./gateway/drive.ts";
 import { gatewayServer } from "./gateway/listen.ts";
 import { logEach } from "./gateway/log.ts";
 import { checkedCredentials, type GatewayPair } from "./gateway/pairs.ts";
 import type { Nmts } from "./nmts.ts";
+import { VERSION } from "./product.ts";
+
+// The gateway's requests are the SDK's, like every other entry point's (`index.ts`).
+identifyClient("sdk", VERSION);
 
 /** What the client sent about one upload: its `x-amz-storage-class` and its `Content-Type`. */
 export type { WriteMeta } from "@needmoretruth/nmts-cli/s3-gateway";

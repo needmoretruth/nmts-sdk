@@ -14,13 +14,16 @@
 //    first thing a reader would know about it is a different error. Importing
 //    `@needmoretruth/nmts-sdk/browser` is the caller saying so.
 
-import { registerHost } from "@needmoretruth/nmts-cli/portable";
+import { identifyClient, registerHost } from "@needmoretruth/nmts-cli/portable";
 
 import { browserHost } from "./host-browser.ts";
+import { VERSION } from "./product.ts";
 
 // ⛔ BEFORE ANY EXPORT BELOW CAN BE CALLED, for the reason the Node entry registers its own on the
 //    way in: a module's imports run before its body, so nothing a caller holds exists yet.
 registerHost(browserHost());
+// The same `x-nmts-client: sdk/<version>` the Node entry sends (`index.ts`).
+identifyClient("sdk", VERSION);
 
 export { Nmts } from "./nmts.ts";
 export type {

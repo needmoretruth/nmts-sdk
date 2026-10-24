@@ -23,7 +23,7 @@ export interface HostOptions {
   onProgress?: ((line: string) => void) | undefined;
   /** The storage network's relay this page writes through, instead of the network's own. */
   relay?: string | undefined;
-  /** The Sui JSON-RPC endpoint this page asks, instead of the network's own. */
+  /** The Sui node this page asks (it must answer gRPC-web), instead of the network's own. */
   suiRpc?: string | undefined;
   /** Hosts to read stored bytes from, instead of the public aggregators for the network. */
   aggregators?: readonly string[] | undefined;

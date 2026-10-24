@@ -70,8 +70,8 @@ test("⛔ relay and suiRpc are honoured on Node, not only in a page", () => {
   // What the network's own hosts are, so that what follows is visibly a change and not a default.
   assert.equal(relayHost("testnet"), "https://upload-relay.testnet.walrus.space");
   assert.deepEqual([...suiRpcHosts("testnet")], [
-    "https://sui-testnet-rpc.publicnode.com",
-    "https://testnet.suiet.app",
+    "https://fullnode.testnet.sui.io",
+    "https://rpc-testnet.suiscan.xyz",
   ]);
   clientWith({
     accountCode: "not-used-here",

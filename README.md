@@ -576,7 +576,7 @@ await gateway.listen(9000);                  // 127.0.0.1 unless you pass a host
 | The NMTS server | the account's records: the file list, credits, keys that wrap keys | `https://nmts.me` | `server` |
 | Walrus aggregators | reading stored bytes | the network's public aggregators | `aggregators` — a list |
 | The Walrus upload relay | writing stored bytes | the network's relay | `relay` — one host |
-| Sui nodes (JSON-RPC) | the chain: paying, extending, storage resources | public nodes, tried in order | `suiRpc` — one host or a list |
+| Sui nodes (gRPC-web) | the chain: paying, extending, storage resources | public nodes, tried in order | `suiRpc` — one host or a list |
 
 A list you give replaces the network's own: nothing you did not name is tried. `relay` and `suiRpc`
 take effect on Node and in a page alike (before 0.9.0 they were read only in a page).

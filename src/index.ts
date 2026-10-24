@@ -10,9 +10,15 @@
 //    the same names, a browser host, and no path anywhere.
 
 import { fileSink, fileSource, measureLocal } from "@needmoretruth/nmts-cli";
+import { identifyClient } from "@needmoretruth/nmts-cli/portable";
 
 import { credentialsFromEnvironment } from "./env.ts";
 import { useNodeSeams } from "./node-seams.ts";
+import { VERSION } from "./product.ts";
+
+// Every request this package makes says it came from the SDK (`x-nmts-client: sdk/<version>`),
+// so the public stats page can count use by client. The server keeps the count and nothing else.
+identifyClient("sdk", VERSION);
 
 // ⛔ BEFORE ANY EXPORT BELOW CAN BE CALLED. A module's imports run before its body, so by the time
 //    a program holds anything from this file the seams are in place — and `put("/tmp/x")`,

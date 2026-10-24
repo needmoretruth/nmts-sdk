@@ -19,8 +19,9 @@ export interface NmtsOptions extends ServerOptions {
    */
   relay?: string | undefined;
   /**
-   * The Sui JSON-RPC endpoints this client asks, instead of the network's own: one, or a list
-   * tried in order.
+   * The Sui nodes this client asks, instead of the network's own: one, or a list tried in order.
+   * Each must answer gRPC-web (Sui retired JSON-RPC in October 2026); `https://fullnode.mainnet.sui.io`
+   * and `https://rpc-mainnet.suiscan.xyz` do, as do their testnet twins.
    *
    * ⛔ IT REPLACES THE LIST rather than adding to it, exactly as `aggregators` does — somebody who
    *    names a node is saying *those*, and reaching a public mirror as well would send their
