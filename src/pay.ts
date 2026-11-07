@@ -26,8 +26,8 @@ import type { SignExtension, SignStorageOp } from "@needmoretruth/nmts-cli/stora
  * extension, a hardware wallet, a remote signer.
  *
  * ⚠ THE SHAPE IS THE WALLET STANDARD'S, which is what a page already has. `signTransaction` is
- *   handed the bytes and answers `{ bytes, signature }` — exactly what dapp-kit's
- *   `useSignTransaction()` gives back, and what a `@mysten/sui` keypair answers too — and
+ *   handed the bytes and answers `{ bytes, signature }` — exactly what dapp-kit-react's
+ *   `useDAppKit().signTransaction()` gives back, and what a `@mysten/sui` keypair answers too — and
  *   `Nmts.fromWallet`'s `sign` is the same bargain for logging in, so one wallet object serves both.
  */
 export interface ExternalSigner {

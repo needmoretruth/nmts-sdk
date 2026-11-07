@@ -47,7 +47,7 @@ export interface WalletInput {
    * Whatever holds the wallet's key, asked for a signature over the bytes this package builds.
    *
    * It takes the message and answers what the wallet standard answers — `{ signature, bytes }`, or
-   * the serialized signature on its own. In a page that is `useSignPersonalMessage()`; on a server
+   * the serialized signature on its own. In a page that is `useDAppKit().signPersonalMessage()` (`@mysten/dapp-kit-react`); on a server
    * it is whatever signs for the person whose account this is.
    */
   sign: SignWallet;

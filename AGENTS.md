@@ -179,7 +179,7 @@ the person is as safe as their trust in that page. Recipes: `examples/next-embed
 ### A wallet the caller holds: `pay: { signer }`
 
 `signer` is `{ address, signTransaction({ bytes, chain }) }` — the wallet standard's answer,
-`{ bytes, signature }`, which is what a browser extension through `useSignTransaction()` and a
+`{ bytes, signature }`, which is what a browser extension through `useDAppKit().signTransaction()` and a
 `@mysten/sui` keypair both already give. The address is judged before the account is opened
 (`PAYER_ADDRESS` when it is not `0x` and 64 hex characters), it is the address the price, both
 balances and the shortfall sentence name, and the same `pay` goes to `extend`, `storage`,
@@ -230,7 +230,7 @@ NMTS cannot open the copy and does not learn which wallet it belongs to. What co
 ordinary device client: every method works.
 
 `sign(messageBytes)` answers what the wallet standard answers — `{ signature, bytes }`, or the
-serialized signature alone. In a page that is dapp-kit's `useSignPersonalMessage()`. `account`
+serialized signature alone. In a page that is `useDAppKit().signPersonalMessage()` from `@mysten/dapp-kit-react`. `account`
 (default 1) picks which of that wallet's accounts, and `app` makes a key for your product only; both
 are inside the signed message. Without `app`, one wallet opens the same account in every product
 that asks — say which you chose to your users.

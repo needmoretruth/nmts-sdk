@@ -173,23 +173,23 @@ Three things come with it, and they are why it is not the default:
   storage a wallet bought is never touched by it and stays on Walrus until its term ends, whichever
   wallet paid.
 
-In a page, the wallet the person already uses pays — with `@mysten/dapp-kit`, the wiring is the
+In a page, the wallet the person already uses pays — with `@mysten/dapp-kit-react`, the wiring is the
 signer object:
 
 ```jsx
-import { useCurrentAccount, useSignTransaction } from "@mysten/dapp-kit";
+import { useCurrentAccount, useDAppKit } from "@mysten/dapp-kit-react";
 import { toBase64 } from "@mysten/sui/utils";
 import { Nmts } from "@needmoretruth/nmts-sdk/browser";
 
 function Upload({ accountCode, apiKey }) {
   const account = useCurrentAccount();
-  const { mutateAsync: sign } = useSignTransaction();
+  const dAppKit = useDAppKit();
   async function upload(file) {
     if (!account) return;                       // nothing is connected: nothing can pay
     const signer = {
       address: account.address,
-      // `sign` answers { bytes, signature }, which is what this package takes.
-      signTransaction: ({ bytes, chain }) => sign({ transaction: toBase64(bytes), chain }),
+      // `signTransaction` answers { bytes, signature }, which is what this package takes.
+      signTransaction: ({ bytes }) => dAppKit.signTransaction({ transaction: toBase64(bytes) }),
     };
     const nmts = Nmts.device({ accountCode, apiKey });
     const price = await nmts.put({ name: file.name, blob: file }, { pay: { signer }, dryRun: true });
@@ -407,7 +407,7 @@ NMTS cannot open the copy and does not learn which wallet it belongs to. What co
 ordinary device client: every method works.
 
 `sign(messageBytes)` answers what the wallet standard answers — `{ signature, bytes }`, or the
-serialized signature alone. In a page that is dapp-kit's `useSignPersonalMessage()`. `account`
+serialized signature alone. In a page that is `useDAppKit().signPersonalMessage()` from `@mysten/dapp-kit-react`. `account`
 (default 1) picks which of that wallet's accounts, and `app` makes a key for your product only; both
 are inside the signed message. Without `app`, one wallet opens the same account in every product
 that asks — say which you chose to your users.
