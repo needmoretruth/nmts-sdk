@@ -24,9 +24,12 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are nineteen: `account`, `walletAddress`, `wallets`,
-`setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`, `restore`, `erase`, `storage`, `extend`, `splitStorage`, `mergeStorage`, `transferStorage`, plus the statics `device`, `managed` and `fromEnv`
-that make a client.
+method that is not in `dist/index.d.ts`. There are twenty-seven methods: `account`, `walletAddress`,
+`wallets`, `setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`,
+`restore`, `erase`, `makeLink`, `listLinks`, `allLinks`, `revokeLink`, `revokeAllLinks`,
+`recoveryList`, `recoveryCopy`, `setRecoveryCopy`, `storage`, `extend`, `splitStorage`,
+`mergeStorage`, `transferStorage`; two getters, `openers` and `publicCodes`; and the statics that
+make a client: `device`, `managed`, `fromWallet` and `fromEnv` (`business` makes the business client).
 
 | | What it does | Where it comes from |
 |---|---|---|
@@ -146,6 +149,8 @@ of them is one.
 | `remove(paths)` | nothing | server | To the trash, restorable for 30 days; a folder takes everything under it. Not erasure: the file keeps its storage. `{ removed }` |
 | `erase(paths, { confirm, releaseStorage? })` | nothing | server | ⛔ **Permanent.** Erases the server's record, this account's key to the file and its list entry; a folder erases every file under it. `confirm` must be `ERASE_CONFIRM` ("I UNDERSTAND THIS IS PERMANENT") word for word, or nothing is sent (`ERASE_NOT_CONFIRMED`). Ask the person before you write that call, every time. `{ erased, storage }` |
 | `restore(paths)` | nothing | server | Back out of the trash. `{ restored }` |
+| `recoveryList()` | nothing | server | The recovery list, the same file `nmts recovery-list` writes: `{ filename, content, seq, files, bytes, missing }`. It opens with the NMTS key alone; give it to the person to keep. The server is told its number. |
+| `recoveryCopy()` · `setRecoveryCopy(on)` | nothing | server | Whether small wallet uploads also carry the newest list to Walrus (`{ on, written }`), and turning that on or off. With it on, `put({ pay: "wallet" })` of one part under 64 MiB onto new storage carries it and reports `recoveryList` and `recoveryProblem`; the upload never fails because of it. |
 | `put(file, { name?, to?, onCollision?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` or `pay: { signer }` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`; `onCollision: "overwrite"` stores under the name and sends the old file to the trash (30 days), `"rename"` numbers it, for that call only; absent, this machine's `nmts on-collision` setting decides. `wallet`, `epochs` and `storage` are refused unless a wallet is paying, and `wallet` with `pay: { signer }` is `TWO_PAYERS` |
 | `get(path, { maxBytes? })` | nothing | server + storage network | Whole file in memory, checked first. Refuses over 256 MiB unless raised — use `getTo` |
 | `getTo(path, destination, { force? })` | nothing | server + storage network | Streams to disk through a temporary name; refuses an existing file unless `force`. Node only |
@@ -295,9 +300,9 @@ putOptions?, bucketNames?, virtualHostBase?, stagingDir?, log?, now? })`, which 
 
 ## What this library does not do
 
-- **Sharing a file and the recovery list.** They exist as commands of the command-line tool (`nmts share`,
-  `nmts recovery-list`) and are not library calls yet, in this package or in that one. Run the
-  commands; do not look for an import. The account's public codes are a library call: `publicCodes`.
+- **Sharing a file.** It exists as a command of the command-line tool (`nmts share`) and is not a
+  library call yet, in this package or in that one. Run the command; do not look for an import. The
+  account's public codes are a library call: `publicCodes`, and so is the recovery list: `recoveryList()`.
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.

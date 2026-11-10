@@ -172,15 +172,15 @@ export interface WalletPut extends Uploaded {
   paid: "wallet";
   /** Always 0: a wallet-paid upload takes no credits from the account. */
   credits: 0;
-  /**
-   * WAL that left the wallet, in FROST — the chain's smallest unit, as a decimal string because
-   * a JSON number would round it. "0" when this call resumed one an earlier call paid for.
-   */
+  /** WAL that left the wallet, in FROST, as a decimal string; "0" when this call resumed a paid one. */
   wal: string;
   /** SUI that left the wallet, in MIST: the relay's tip plus the measured register fees. */
   sui: string;
   /** The epoch the storage runs to. */
   endEpoch: number;
+  /** The recovery list that went up in the same quilt, by number, and why one did not (the upload stands). */
+  recoveryList: number | null;
+  recoveryProblem: string | null;
 }
 
 export type { HeavyPayFrom, HeavyPut, HeavyPutOptions, HeavyReview } from "./put-heavy.ts";

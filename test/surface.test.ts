@@ -51,12 +51,15 @@ test("the package exports one class, and its methods are the ones the README sho
     // ⚠ A getter too, for the same reason: the README shows `nmts.publicCodes.list()` and its three siblings.
     "publicCodes",
     "put",
+    "recoveryCopy",
+    "recoveryList",
     "remove",
     "rename",
     "restore",
     "revokeAllLinks",
     "revokeLink",
     "setActiveWallet",
+    "setRecoveryCopy",
     "splitStorage",
     "storage",
     "transferStorage",
@@ -69,6 +72,31 @@ test("the package exports one class, and its methods are the ones the README sho
   }
   assert.equal(typeof sdk.deviceRoot, "function");
   assert.equal(typeof sdk.managedRoot, "function");
+});
+
+/** An English number word, as AGENTS.md writes a count. */
+function numberWord(n: number): string {
+  const ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+  const tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+  if (n < 20) return ones[n] ?? String(n);
+  const t = tens[Math.floor(n / 10)] ?? String(n);
+  return n % 10 === 0 ? t : `${t}-${ones[n % 10] ?? ""}`;
+}
+
+test("AGENTS.md lists every method and getter the class has, under the count it says", () => {
+  // ⛔ THE LIST IN PROSE IS A PROMISE TOO. It said "nineteen", then "twenty-two", while links,
+  //    openers and public codes had shipped beside it: a coding agent reading it was told those
+  //    did not exist. Nothing compared the sentence with the class, so it drifted with every verb.
+  const text = readFileSync(join(here, "AGENTS.md"), "utf8");
+  const m = /There are ([a-z-]+) methods: ([^;]+); two getters, ([^;]+);/.exec(text);
+  assert.ok(m !== null, "AGENTS.md lost the sentence that lists the methods");
+  const names = (part: string): string[] => [...part.matchAll(/`(\w+)`/g)].map((x) => x[1] ?? "");
+  const methods = names(m[2] ?? "");
+  const listed = [...methods, ...names(m[3] ?? "")].sort();
+  const proto = Object.getOwnPropertyNames(sdk.Nmts.prototype).filter((n) => n !== "constructor").sort();
+  assert.deepEqual(listed, proto);
+  assert.equal(m[1], numberWord(methods.length), "the count in the sentence is not the number of methods it lists");
 });
 
 /**

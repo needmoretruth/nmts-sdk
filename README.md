@@ -309,6 +309,9 @@ await nmts.rename("archive/a.pdf", "first.pdf")  // { from, to }
 await nmts.remove("archive/b.pdf")         // { removed } — to the trash, restorable for 30 days
 await nmts.restore("archive/b.pdf")        // { restored }
 await nmts.erase("old.pdf", { confirm: ERASE_CONFIRM })   // { erased, storage } — for good; nothing undoes it
+await nmts.recoveryList()          // { filename, content, seq, files, bytes, missing } — the file `nmts recovery-list` writes
+await nmts.recoveryCopy()          // { on, written } — whether small wallet uploads carry the list to Walrus
+await nmts.setRecoveryCopy(true)   // turn that copy on (or off) from the next upload
 await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, thumbnail?, dryRun?, onStep?, onProgress? })
 await nmts.get(path, { maxBytes?, thumbnail? })     // Uint8Array; 256 MiB ceiling unless raised
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
@@ -354,6 +357,16 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
   for with credits is destroyed first, and `storage` reports each file; a file whose release failed
   is left whole. Storage bought from the wallet stays on Walrus until its term ends. It returns
   `{ erased, storage }`.
+- **The recovery list gets somebody's files back without NMTS.** It names each file and the key
+  that opens it, sealed so that only the NMTS key opens it. `recoveryList()` returns the same file
+  `nmts recovery-list` writes, with its file name; your app decides where the person keeps it, and
+  the server records its number. With `setRecoveryCopy(true)`, a wallet upload of one part under
+  64 MiB onto new storage puts the newest list in the same quilt on Walrus, as the web app does, and
+  the standalone recovery tool finds it with the NMTS key alone (`nmts-recovery --find`). The WAL
+  quoted for that upload includes the list. A copy paid through `pay: { signer }`, a wallet the NMTS
+  key does not derive, cannot be found that way, and credit uploads do not include the list. A list
+  left out never fails the upload: `put()` reports `recoveryList` (the list's number, or `null`) and
+  `recoveryProblem` (why it was left out, or `null`).
 
 - **`put()` takes** a path (`"./report.pdf"`, Node only), bytes (`{ name, bytes }`), or a `Blob`
   (`{ name, blob }`). A bare `Uint8Array` works too, with `name` in the options.
@@ -499,7 +512,9 @@ const token = await business.delegate({
 Scopes are `files_read`, `files_write`, `storage_spend`, `register` and `files_erase`. `erase()` needs
 `files_erase`; `files_write` alone is refused. The server also asks for the NMTS key's own proof on
 that request, which the client makes from the key it holds — so erasing through a token takes the
-business's permission and the key holder's act together. A delegation token takes the
+business's permission and the key holder's act together. The recovery list works the same way:
+`recoveryList()` needs `files_read`, `setRecoveryCopy()` needs `files_write`, and both send the
+key's proof; `recoveryCopy()` needs `files_read` only. A delegation token takes the
 place of `apiKey` in `Nmts.device()` and `Nmts.managed()`, and every method works with it. It
 cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
 those with `DELEGATION_SCOPE`.

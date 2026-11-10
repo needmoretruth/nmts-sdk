@@ -94,6 +94,9 @@ export async function putSourceWithWallet(
   //    so `WalletPutContext.code` is the same borrowed copy the list was opened with rather than a
   //    second opening of a business's store partway through a call that is about to spend.
   return withAccount(opened, async (held) => {
+    // The recovery list's copy is a passenger (`upload-recovery-patch.ts`): why it stayed behind
+    // comes back beside the upload instead of failing it.
+    let recoveryProblem: string | null = null;
     const { entries, padding: rule, activeWallet } = await readList(held);
     const parentId = folderIdFor(options.to, entries, "Nothing was sent and nothing was signed.");
     const outcome = await walletPut(
@@ -126,6 +129,7 @@ export async function putSourceWithWallet(
         dryRun: options.dryRun,
         onStep: options.onStep,
         onProgress: options.onProgress,
+        onRecoveryProblem: (message) => (recoveryProblem = message),
       },
     );
     const { review } = outcome;
@@ -170,6 +174,8 @@ export async function putSourceWithWallet(
       resumed: outcome.resumed,
       renamed: outcome.savedAs !== name,
       fileListVersion: outcome.fileListVersion,
+      recoveryList: outcome.recoveryList,
+      recoveryProblem,
     };
   });
 }

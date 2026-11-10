@@ -39,6 +39,7 @@ import { makeFolderAt, moveTo, removeToTrash, renameTo, restoreFromTrash } from 
 import type { MkdirResult, MoveResult, RemoveResult, RenameResult, RestoreResult } from "./organise.ts";
 import * as links from "./links.ts";
 import { publicCodesOn, type PublicCodes } from "./public-codes.ts";
+import { recoveryCopyOf, recoveryListOf, setRecoveryCopyOf, type RecoveryCopy, type RecoveryList } from "./recovery.ts";
 import type { HeavyPut, HeavyPutOptions, HeavyReview, PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
 import type { PayerOptions } from "./pay.ts";
@@ -70,7 +71,6 @@ export class Nmts {
 
   /**
    * The key is in YOUR store, sealed, and `openCode` opens it for one call at a time.
-   *
    * What this means for the people whose files they are is in the README's first table: a business
    * that holds the key can read the files. It is a choice, not a defect, and it is the caller's.
    */
@@ -99,7 +99,6 @@ export class Nmts {
 
   /**
    * A device client whose account is opened by a WALLET rather than by a code somebody typed.
-   *
    * The wallet signs one fixed message; that signature names the sealed slot holding this
    * account's key and is the only thing that opens it. What comes back is an ordinary device
    * client — the key is in this process exactly as `Nmts.device()`'s is, and whoever holds the
@@ -113,29 +112,19 @@ export class Nmts {
     return new Nmts(deviceRoot(await credentialsFromWallet(input)), optionsOf(input));
   }
 
-  /**
-   * A brand-new NMTS key, made in this process by the engine.
-   *
-   * ⛔ Nothing is sent and nothing is stored: the caller is the only holder. In the embedded form
-   *    this runs on the person's device, so the business never sees the key.
-   */
+  /** A brand-new NMTS key, made here. ⛔ Nothing is sent or stored; embedded, the business never sees it. */
   static newAccountCode(): Promise<string> {
     return newAccountCode();
   }
 
-  /**
-   * The public id of the account an NMTS key opens — what a device tells its business so that the
-   * business can sign a delegation token for it. Not a secret, and derived without any request.
-   */
+  /** The account id a key opens, for the business to sign a token for. Not a secret; no request. */
   static async accountIdOf(accountCode: string): Promise<string> {
     return (await registrationProofOf(accountCode)).accountId;
   }
 
   /**
    * The embedded form: a device holding a token with the `register` scope makes its own account.
-   *
-   * The NMTS key stays where it was made — this sends only the pair every account door has always
-   * taken — so the business that signed the token never sees it.
+   * The key stays where it was made — only the pair every account door takes is sent.
    */
   static registerWithDelegation(options: EmbeddedRegistration & NmtsOptions): Promise<RegisteredUser> {
     useOptions(optionsOf(options));
@@ -143,12 +132,9 @@ export class Nmts {
   }
 
   /**
-   * A device client whose credentials come from the environment, the way the command-line tool
-   * finds them.
-   *
-   * `NMTS_ACCOUNT_CODE_FILE` and `NMTS_API_KEY_FILE` name files (preferred); `NMTS_ACCOUNT_CODE`
-   * and `NMTS_API_KEY` hold the values. `NMTS_SERVER` and `NMTS_NETWORK` are read by every call
-   * either way. Nothing is read until this is called.
+   * A device client with credentials from the environment, as the command-line tool finds them:
+   * `NMTS_ACCOUNT_CODE_FILE` and `NMTS_API_KEY_FILE` name files (preferred), `NMTS_ACCOUNT_CODE` and
+   * `NMTS_API_KEY` hold values; `NMTS_SERVER`/`NMTS_NETWORK` are read by every call. Read only now.
    */
   static fromEnv(options: NmtsOptions = {}): Nmts {
     const found = nodeSeams("FROM_ENV_UNAVAILABLE", "There is no environment to read. Pass `accountCode` and `apiKey` to Nmts.device().").environment();
@@ -388,6 +374,21 @@ export class Nmts {
   /** Cut every live link in one request, all or none, and answer how many. No copy already downloaded is reached. */
   async revokeAllLinks(): Promise<number> {
     return links.revokeAllLinksOf(this.#account());
+  }
+
+  /** The recovery list, the file `nmts recovery-list` writes; the server is told its number. Nothing is spent. */
+  async recoveryList(): Promise<RecoveryList> {
+    return recoveryListOf(this.#account());
+  }
+
+  /** Whether small wallet uploads carry the recovery list to the storage network, and whether one ever has. */
+  async recoveryCopy(): Promise<RecoveryCopy> {
+    return recoveryCopyOf(this.#account());
+  }
+
+  /** Turn that copy on or off from the next upload. It rides in a one-part wallet upload under 64 MiB. */
+  async setRecoveryCopy(on: boolean): Promise<void> {
+    return setRecoveryCopyOf(this.#account(), on);
   }
 
   /** Open somebody's public link — no account — and get the file, checked, in memory. */

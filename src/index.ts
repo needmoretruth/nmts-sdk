@@ -77,6 +77,8 @@ export type { AttachedWallet, OpenerInfo, Openers, SignWallet, WalletCredentials
 // `confirm: ERASE_CONFIRM`, and that it is visible in the call is the whole safety of it.
 export { ERASE_CONFIRM } from "./erase.ts";
 export type { EraseOptions, EraseResult, EraseStorage } from "./erase.ts";
+// The recovery list and its storage-network copy: what the three verbs answer.
+export type { RecoveryCopy, RecoveryList } from "./recovery.ts";
 // Folders, moving, renaming and the trash: what the five verbs answer.
 export type {
   MkdirResult,
