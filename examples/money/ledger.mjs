@@ -12,6 +12,7 @@
 //   node examples/money/ledger.mjs status <customer>      what is left
 //   node examples/money/ledger.mjs unpaid <customer>      stop signing for them (extensions stop too)
 //   node examples/money/ledger.mjs paid <customer>        sign for them again
+//   node examples/money/ledger.mjs account <customer> <id>   their NMTS account id, for auto-extend.mjs
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 const MIB = 1024 * 1024;
@@ -114,6 +115,21 @@ export class Ledger {
     return verdict;
   }
 
+  /** The customer's NMTS account id: their device tells you it when it registers (`Nmts.accountIdOf`). */
+  setAccount(customer, account) {
+    this.#reload();
+    this.#customer(customer).account = account;
+    this.save();
+  }
+
+  /** Every customer whose NMTS account is known, and whether they are marked unpaid. */
+  accounts() {
+    this.#reload();
+    return Object.entries(this.state.customers)
+      .filter(([, c]) => typeof c.account === "string")
+      .map(([customer, c]) => ({ customer, account: c.account, unpaid: c.unpaid }));
+  }
+
   setUnpaid(customer, unpaid) {
     this.#reload();
     this.#customer(customer).unpaid = unpaid;
@@ -122,8 +138,9 @@ export class Ledger {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const [command, customer] = process.argv.slice(2);
+  const [command, customer, account] = process.argv.slice(2);
   const ledger = Ledger.open(process.env.LEDGER_FILE ?? "./ledger.json");
   if (command === "unpaid" || command === "paid") ledger.setUnpaid(customer, command === "unpaid");
+  if (command === "account") ledger.setAccount(customer, account);
   console.log(JSON.stringify(ledger.status(customer)));
 }

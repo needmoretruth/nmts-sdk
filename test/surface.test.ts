@@ -50,6 +50,7 @@ test("the package exports one class, and its methods are the ones the README sho
     "buyStorage",
     "erase",
     "extend",
+    "extendFor",
     "get",
     "getTo",
     "list",

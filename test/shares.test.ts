@@ -53,9 +53,9 @@ const ITEM = "31111111-2222-3333-4444-555555555555";
 const REAL = new TextEncoder().encode("a memo for one other account");
 
 /**
- * The account's memo, a recipient whose code is published, and this account's own code 0 published
- * the way its business would publish a Platform user's: a token cannot read the code list, so the
- * library finds the live one at the public lookup.
+ * The account's memo and a recipient whose code is published. This account has no code yet, so the
+ * first share publishes its code 0 on every root — a delegation token too, with its `share` bit and
+ * the code's proof.
  */
 async function setUp(code: string): Promise<{ recipientCode: string; recipient: string }> {
   const sealed = await sealFile(code, [REAL], REAL.length);
@@ -66,11 +66,8 @@ async function setUp(code: string): Promise<{ recipientCode: string; recipient: 
   const recipientCode = await generateCode();
   const r = shareKeysOf(crypt, recipientCode);
   codes.recipients.set(toBase64Url(r.address), toBase64Url(r.identity));
-  const mine = shareKeysAt(crypt, code, 0);
-  codes.recipients.set(toBase64Url(mine.address), toBase64Url(mine.identity));
   const recipient = r.display;
   r.wipe();
-  mine.wipe();
   return { recipientCode, recipient };
 }
 
@@ -113,10 +110,10 @@ for (const { name, root, opens } of rootsUnderTest()) {
       assert.equal(opened.sender, mine.display);
       mine.wipe();
       opened.dek?.fill(0);
-      if (name === "delegation") {
-        // ⛔ The token could not read its own code list, and the library found the live code anyway.
-        assert.deepEqual(delegationRefusals, ["GET /v1/account/public-codes DELEGATION_SCOPE"]);
-      }
+      // ⛔ The first share published the account's own code 0, and no door refused the token: the
+      //    fake drive asks a token for the `share` bit and the proof on the code doors, as the server.
+      assert.deepEqual(codes.posts.map((p) => p.index), [0], "the first share did not publish code 0");
+      assert.deepEqual(delegationRefusals, []);
       await client(code).unshare("sh-new");
       assert.deepEqual(codes.unshared, ["sh-new"]);
     });

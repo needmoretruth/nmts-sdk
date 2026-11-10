@@ -13,6 +13,7 @@ import { createHmac } from "node:crypto";
 import { test } from "node:test";
 
 import { btcpayPayment, verifyBtcpaySignature } from "../examples/money/btcpay.mjs";
+import { extendCustomers } from "../examples/money/auto-extend.mjs";
 import { allowanceFor, Ledger, mibEpochsOf } from "../examples/money/ledger.mjs";
 import { confirmedTotal, digestAuthorization } from "../examples/money/monero.mjs";
 import { stripePayment, verifyStripeSignature } from "../examples/money/stripe.mjs";
@@ -117,4 +118,44 @@ test("the ledger: a payment credits once however often it is sent, each signatur
   assert.deepEqual(ledger.judge("u", certify), { ok: false, reason: "u is marked unpaid" });
   ledger.credit({ eventId: "e2", customer: "u", mibEpochs: 10, suiMist: 0n });
   assert.equal(ledger.judge("u", register).ok, true, "a new payment did not lift unpaid");
+});
+
+test("auto-extend: an unpaid customer is skipped before anything is minted; a paying one is priced, judged, extended and charged", async () => {
+  const ledger = new Ledger();
+  const MIB = 1024 * 1024;
+  ledger.credit({ eventId: "p1", customer: "paying", mibEpochs: 100, suiMist: 100_000_000n });
+  ledger.setAccount("paying", "acct-paying");
+  ledger.credit({ eventId: "p2", customer: "stopped", mibEpochs: 100, suiMist: 100_000_000n });
+  ledger.setAccount("stopped", "acct-stopped");
+  ledger.setUnpaid("stopped", true);
+  ledger.credit({ eventId: "p3", customer: "no-account", mibEpochs: 1, suiMist: 1n });
+
+  const minted: string[] = [];
+  const business = {
+    async delegate(order: { user: string; scope: string[] }): Promise<string> {
+      assert.deepEqual(order.scope, ["files_read", "storage_spend"]);
+      minted.push(order.user);
+      return `token-for-${order.user}`;
+    },
+  };
+  const file = { itemId: "f1", code: null, reason: null, epochs: 2, bytes: 3 * MIB, endEpoch: 10, newEndEpoch: 12, wal: "900", sui: "2000000" };
+  const runs: { token: string; dryRun: boolean }[] = [];
+  const nmts = {
+    async extendFor(token: string, options: { dryRun?: boolean }) {
+      runs.push({ token, dryRun: options.dryRun === true });
+      const outcome = options.dryRun === true ? "priced" : "extended";
+      return { files: [{ ...file, outcome, digest: outcome === "extended" ? "D1" : null }], wal: "900", sui: "2000000", stopped: null };
+    },
+  };
+  const lines: string[] = [];
+  await extendCustomers({ nmts, business, ledger, epochs: 2, log: (line: string) => lines.push(line) });
+
+  assert.deepEqual(minted, ["acct-paying"], "a token was minted for a customer marked unpaid");
+  assert.deepEqual(runs, [
+    { token: "token-for-acct-paying", dryRun: true },
+    { token: "token-for-acct-paying", dryRun: false },
+  ]);
+  assert.equal(ledger.status("paying").mibEpochsLeft, 100 - 3 * 2, "the extension was not charged");
+  assert.ok(lines.some((l) => /skip stopped: marked unpaid/.test(l)));
+  assert.ok(lines.some((l) => /paying: extended f1 from epoch 10 to 12/.test(l)));
 });

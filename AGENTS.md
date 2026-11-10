@@ -24,10 +24,10 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are thirty-one methods: `account`, `walletAddress`,
+method that is not in `dist/index.d.ts`. There are thirty-two methods: `account`, `walletAddress`,
 `wallets`, `setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`,
 `restore`, `erase`, `makeLink`, `listLinks`, `allLinks`, `revokeLink`, `revokeAllLinks`,
-`recoveryList`, `recoveryCopy`, `setRecoveryCopy`, `storage`, `buyStorage`, `extend`, `splitStorage`,
+`recoveryList`, `recoveryCopy`, `setRecoveryCopy`, `storage`, `buyStorage`, `extend`, `extendFor`, `splitStorage`,
 `mergeStorage`, `transferStorage`, `sponsor`, `share`, `unshare`; three getters, `openers`, `publicCodes` and
 `shares`; and the statics that
 make a client: `device`, `managed`, `fromWallet` and `fromEnv` (`business` makes the business client),
@@ -79,9 +79,8 @@ for the NMTS key's proof on that request, which the client makes from the key it
 
 `share()`, `put({ shareWith })` and `makeLink()` need the scope `share` and the same proof, made the
 same way. Reading shares and links needs `files_read`; `unshare()` and `revokeLink()` need
-`files_write`. A token cannot list or publish its account's public codes: the business does that
-with `setPublicCodes`, and `publicCodes.list/create/revoke` answer `NOT_FOR_DELEGATION` before
-sending anything.
+`files_write`. `publicCodes.list/create/revoke` need `share` and the same proof, so a device holding
+its own key publishes its own code; without `share` they answer `DELEGATION_SCOPE`.
 
 A delegation token takes the place of `apiKey` in `Nmts.device()` and `Nmts.managed()`. It cannot
 delete the account, make API keys or reach the key that opens the files (`DELEGATION_SCOPE`), and
@@ -148,8 +147,8 @@ of them is one.
 | `walletAddress({ index })` | nothing | none | The address of the wallet at that number |
 | `wallets()` | nothing | server + chain | `{ index, address, active }[]`: the wallets this account made, plus any funded one within twenty of them |
 | `setActiveWallet(n)` | nothing | server | Which of this key's wallets pays from now on. Written into the account's sealed list, so every device follows |
-| `publicCodes.list({ activity? })` · `.create({ replace? })` · `.revoke(n)` · `.identityFor(n)` | nothing | server (`identityFor`: none) | The account's public codes, numbered from its NMTS key: list them, publish the next (`replace` revokes one in the same request), revoke one for good, or derive one offline. Refusals arrive as `ServerError` with `TOO_MANY_LIVE_CODES`, `PUBLIC_CODE_DAY_CAP`, `LAST_LIVE_CODE` or `PLATFORM_REPLACE_ONLY` |
-| `share(path, publicCode, { as? })` | nothing | server | Gives the account behind that public code the key to this one file. Publishes this account's first public code if it has none; a delegation token cannot, so its business publishes one first with `setPublicCodes`. `{ id, name, recipient, fromIndex }`. Withdrawing later stops new downloads and cannot recall a copy already taken |
+| `publicCodes.list({ activity? })` · `.create({ replace? })` · `.revoke(n)` · `.identityFor(n)` | nothing | server (`identityFor`: none) | The account's public codes, numbered from its NMTS key: list them, publish the next (`replace` revokes one in the same request), revoke one for good, or derive one offline. Refusals arrive as `ServerError` with `TOO_MANY_LIVE_CODES`, `PUBLIC_CODE_DAY_CAP`, `LAST_LIVE_CODE`, `PLATFORM_REPLACE_ONLY`, `BUSINESS_DAY_CAP` or, for a token without `share`, `DELEGATION_SCOPE` |
+| `share(path, publicCode, { as? })` | nothing | server | Gives the account behind that public code the key to this one file. Publishes this account's first public code if it has none, on every root. `{ id, name, recipient, fromIndex }`. Withdrawing later stops new downloads and cannot recall a copy already taken |
 | `unshare(id)` | nothing | server | Ends a share by its id, sent or received. A received one leaves the sender's file alone |
 | `shares.received()` · `.get(id)` · `.get(id, to, { maxBytes?, force? })` · `.sent(path)` | nothing | server (+ Walrus for `get`) | Shares sent to this account, opened with its own codes; one file's bytes, checked against the hash the sender sealed (`get(id)` answers the bytes, `get(id, to)` writes a file, Node only); and who a file is shared with |
 | `list()` | nothing | server | Every live file and folder as `{ id, path, kind, size, createdAt, updatedAt }`. Trash left out |

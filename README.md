@@ -322,11 +322,30 @@ const signed = await nmts.sponsor(bytesFromTheDevice, { maxBytes: 512 * 2 ** 20,
 { ...limits, network, operator })` is the same check with no key, to judge before signing. The
 package, the system object and the relays' tip addresses are read from the chain and the relays and
 kept ten minutes; pin `walrusPackageId` and `relayTipAddresses` in `limits` to trust nothing read.
-The storage belongs to your wallet's address, so you extend it (the same check passes
-`extend(path, { pay: { signer } })`). The standalone recovery program still opens the user's files
+The storage belongs to your wallet's address, so your wallet extends it: from the user's device
+with `extend(path, { pay: { signer } })` through the same check, or from your server alone with
+`extendFor` below.
+The standalone recovery program still opens the user's files
 from their key and a recovery list file; its own search of Walrus for a list looks only in wallets
 the key makes. A whole server, with Stripe, BTCPay and Monero payments and a ledger:
 [`examples/money/`](examples/money/).
+
+**`nmts.extendFor(userToken, { items?, epochs?, force?, dryRun?, pay? })`** keeps a user's files
+alive from your wallet, on your server, with no key of theirs. `userToken` is the user's delegation
+token with `files_read` and `storage_spend` (`business.delegate`). It goes through all of the user's
+files, or the `items` you name. Each file near its end is bought in a transaction of its own, and
+the new end date is written into the user's account. A file is left as it is, with a code and a
+reason, when it is not near its end (`EXTEND_NOT_DUE`, unless `force`), when its storage is held by
+a wallet other than yours (`EXTEND_NOT_OWNED`, before anything is signed), or when it is in the
+trash. A wallet known to be short stops the run before the next signature. `dryRun: true` prices
+every file and signs nothing. Files are named by id: their names are sealed in the user's list.
+
+```js
+const token = await business.delegate({ user: accountId, scope: ["files_read", "storage_spend"], ttlSecs: 3600 });
+const run = await nmts.extendFor(token, { dryRun: true }); // signs nothing
+// { files: [{ itemId, outcome: "priced" | "extended" | "skipped", code, reason, endEpoch, newEndEpoch, wal, sui, digest }],
+//   wal, sui, wallet: { address, wal, sui }, stopped: null | { code, reason } }
+```
 
 ## NMTS Heavy — `tier: "heavy"`
 
@@ -417,6 +436,7 @@ await nmts.get(path, { maxBytes?, thumbnail? })     // Uint8Array; 256 MiB ceili
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
 await nmts.storage({ pay? })                        // [{ id, sizeBytes, startEpoch, endEpoch, status }] — asks the chain
 await nmts.extend(path, { epochs?, dryRun?, force?, pay? }) // more storage time for one file — signs and spends WAL
+await nmts.extendFor(userToken, { items?, epochs?, force?, dryRun?, pay? }) // a user's files, from this wallet — signs and spends WAL
 await nmts.splitStorage(id, { sizeBytes, dryRun?, pay? })   // one storage resource into two
 await nmts.mergeStorage(idA, idB, { dryRun?, pay? })        // two into one
 await nmts.transferStorage(id, toAddress, { dryRun?, pay? }) // to another wallet — cannot be undone
@@ -446,11 +466,10 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
   `transferStorage()` cannot be undone and moves no file: what goes is size and remaining time.
 
 - **Sharing gives one other account the key to one file.** `share()` publishes this account's
-  first public code if it has none; a delegation token cannot, so its business publishes one first
-  with `setPublicCodes`. `put(file, { shareWith })` uploads on either tier, then shares. When a
-  share fails after the upload, the file stays in the account and the error is
-  `ShareAfterUploadError` with `upload`, `shared` and `failedFor`: share again rather than upload
-  again.
+  first public code if it has none, with a delegation token too. `put(file, { shareWith })`
+  uploads on either tier, then shares. When a share fails after the upload, the file stays in the
+  account and the error is `ShareAfterUploadError` with `upload`, `shared` and `failedFor`: share
+  again rather than upload again.
 - **`mkdir`, `move`, `rename`, `remove` and `restore` spend nothing.** With a delegation token
   they need the `files_write` scope. `move`, `remove` and `restore` take one path or an array.
 - **A name already in use refuses a move, a rename or a restore** with `code: "NAME_TAKEN"`; nothing
@@ -627,9 +646,9 @@ business's permission and the key holder's act together. The recovery list works
 `recoveryList()` needs `files_read`, `setRecoveryCopy()` needs `files_write`, and both send the
 key's proof; `recoveryCopy()` needs `files_read` only. `share()`, `put({ shareWith })` and
 `makeLink()` need `share` and the key's proof; reading shares and links needs `files_read`, and
-`unshare()` and `revokeLink()` need `files_write`. A token cannot list or publish its account's
-public codes: your server does that with `setPublicCodes`, and `publicCodes.list/create/revoke`
-answer `NOT_FOR_DELEGATION`. A delegation token takes the place of `apiKey` in `Nmts.device()` and
+`unshare()` and `revokeLink()` need `files_write`. `publicCodes.list/create/revoke` need `share`
+and the key's proof, so the device that holds the key publishes its own code; a token without
+`share` is refused with `DELEGATION_SCOPE`. A delegation token takes the place of `apiKey` in `Nmts.device()` and
 `Nmts.managed()`, and every other method works with it as its scope allows. It
 cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
 those with `DELEGATION_SCOPE`.

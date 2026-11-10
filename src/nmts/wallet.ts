@@ -16,6 +16,7 @@ import { balancesOf, checkSponsoredBytes, priceOf, type Balances, type NetworkOp
 import type { PayerOptions } from "../pay.ts";
 import { sponsorTransaction, type SponsorLimits, type Sponsored } from "../sponsor.ts";
 import * as storageControl from "../storage.ts";
+import { extendForUser, type ExtendForOptions, type ExtendForResult, type UserToken } from "../extend-for.ts";
 import { buyStorageResource, type BuyStorageOptions, type BuyStorageResult, type BuyStorageReview } from "../storage-buy.ts";
 import { addressOfWallet, setActiveWallet, wallets, type ActiveWallet, type WalletInfo } from "../wallets.ts";
 import { insidesOf } from "./insides.ts";
@@ -63,6 +64,15 @@ export class NmtsWallet {
    */
   async extend(path: string, options: storageControl.ExtendOptions = {}) {
     return storageControl.extendFile(insidesOf(this).opened(), path, options);
+  }
+
+  /**
+   * A business's server extending a user's files from THIS account's wallet, with the user's
+   * delegation token and no key of the user's. **This spends WAL and SUI**; `dryRun: true` only
+   * prices it. Files not due are skipped, and so are blobs this wallet does not hold, before signing.
+   */
+  async extendFor(user: UserToken, options: ExtendForOptions = {}): Promise<ExtendForResult> {
+    return extendForUser(insidesOf(this).opened(), user, options);
   }
 
   /** Cut a storage resource in two: it keeps `sizeBytes` and the rest becomes a second one. **This spends SUI.** */

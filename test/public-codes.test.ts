@@ -7,11 +7,12 @@
 import { strict as assert } from "node:assert";
 import { after, before, test } from "node:test";
 
-import { loadCrypto, shareKeysAt, toBase64Url } from "@needmoretruth/nmts-cli/portable";
+import { generateBusinessKeys, loadCrypto, mintDelegation, shareKeysAt, toBase64Url } from "@needmoretruth/nmts-cli/portable";
 
 // ⚠ Sealing a share is not a library call; the test seals one the way `nmts share` does.
 import { sealShare } from "../../cli/src/share.ts";
-import { Nmts, NmtsError, ServerError } from "../src/index.ts";
+import { Nmts, ServerError } from "../src/index.ts";
+import { deviceRoot } from "../src/root.ts";
 import { generateCode, KEY, publicCodesState, startFakeDrive, withSandbox, type FakeDrive } from "./helpers.ts";
 import { rootsUnderTest } from "./roots.ts";
 
@@ -21,9 +22,9 @@ before(async () => {
 });
 after(() => drive.close());
 
-// ⛔ A DELEGATION TOKEN DOES NOT REACH THESE DOORS on the real server, and the fake drive now refuses
-//    it by the server's own table; its row is the refusal test at the end of this file.
-for (const { name, root, opens } of rootsUnderTest().filter((r) => r.name !== "delegation")) {
+// ⛔ A DELEGATION TOKEN REACHES THESE DOORS with its `share` bit and the code's proof, and
+//    the fake drive asks for both by the server's own table, so its row passes only when both go.
+for (const { name, root, opens } of rootsUnderTest()) {
   const client = (code: string): Nmts =>
     new Nmts(root({ accountCode: code, apiKey: KEY }), { server: drive.base, network: "testnet" });
 
@@ -105,22 +106,28 @@ for (const { name, root, opens } of rootsUnderTest().filter((r) => r.name !== "d
   });
 }
 
-for (const { name, root, opens } of rootsUnderTest().filter((r) => r.name === "delegation")) {
-  test(`[${name}] list, create and revoke refuse by name before anything is sent; identityFor still derives`, async () => {
-    await withSandbox(drive, `sdk-codes-${name}`, async (code) => {
-      const nmts = new Nmts(root({ accountCode: code, apiKey: KEY }), { server: drive.base, network: "testnet" });
-      const calls = drive.calls.length;
-      const refused = (error: unknown): boolean =>
-        error instanceof NmtsError && /^NOT_FOR_DELEGATION/.test(error.message) && /setPublicCodes/.test(error.nextStep ?? "");
-      await assert.rejects(nmts.publicCodes.list(), refused);
-      await assert.rejects(nmts.publicCodes.create(), refused);
-      await assert.rejects(nmts.publicCodes.revoke(0), refused);
-      assert.equal(drive.calls.length, calls, "a refused verb still sent a request");
-      assert.equal(opens(), 0, "a refused verb opened the key");
-      const crypt = await loadCrypto();
-      const keys = shareKeysAt(crypt, code, 2);
-      assert.equal((await nmts.publicCodes.identityFor(2)).code, keys.display);
-      keys.wipe();
-    });
+/**
+ * ⛔ THE BIT IS THE BUSINESS'S TO GIVE. A token minted without `share` hears the server's
+ * `DELEGATION_SCOPE` on all three doors, and `identityFor` still derives offline.
+ */
+test("a delegation token without the share bit is refused by the server on list, create and revoke", async () => {
+  const delegation = mintDelegation({
+    business: toBase64Url(new Uint8Array(16).fill(1)),
+    user: toBase64Url(new Uint8Array(16).fill(2)),
+    privateKey: generateBusinessKeys().privateKey,
+    scope: ["files_read", "files_write"],
+    ttlSecs: 3_600,
   });
-}
+  await withSandbox(drive, "sdk-codes-unscoped", async (code) => {
+    const nmts = new Nmts(deviceRoot({ accountCode: code, delegation }), { server: drive.base, network: "testnet" });
+    const refused = (error: unknown): boolean => error instanceof ServerError && error.code === "DELEGATION_SCOPE";
+    await assert.rejects(nmts.publicCodes.list(), refused);
+    await assert.rejects(nmts.publicCodes.create(), refused);
+    await assert.rejects(nmts.publicCodes.revoke(0), refused);
+    assert.deepEqual(publicCodesState.posts, [], "a token without the bit published a code");
+    const crypt = await loadCrypto();
+    const keys = shareKeysAt(crypt, code, 2);
+    assert.equal((await nmts.publicCodes.identityFor(2)).code, keys.display);
+    keys.wipe();
+  });
+});

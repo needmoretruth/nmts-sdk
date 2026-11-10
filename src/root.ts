@@ -18,7 +18,7 @@
 //    think is calling". Where to talk is `NmtsOptions`, because the same key is the same account on
 //    any server, and a root carrying an address would be a key that only worked against one.
 
-import { DELEGATION_PREFIX, fromBase64Url, fromUtf8, NmtsError } from "@needmoretruth/nmts-cli/portable";
+import { NmtsError, readDelegation } from "@needmoretruth/nmts-cli/portable";
 
 /**
  * Which process holds the key.
@@ -224,16 +224,7 @@ export async function currentDelegationScope(identity: Identity): Promise<number
   return typeof token === "string" ? scopeOf(token.trim()) : null;
 }
 
+/** The scope a token was minted with, read by the command-line package's one reader. */
 function scopeOf(token: string): number | null {
-  if (!token.startsWith(DELEGATION_PREFIX)) return null;
-  const payload = token.slice(DELEGATION_PREFIX.length).split(".")[0];
-  if (payload === undefined || payload === "") return null;
-  try {
-    const parsed: unknown = JSON.parse(fromUtf8(fromBase64Url(payload)));
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const scope: unknown = Reflect.get(parsed, "s");
-    return typeof scope === "number" && Number.isSafeInteger(scope) ? scope : null;
-  } catch {
-    return null;
-  }
+  return readDelegation(token)?.scope ?? null;
 }

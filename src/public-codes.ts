@@ -5,16 +5,18 @@
 //    account holds one to three live codes (a Platform user exactly one), makes a new one at the next
 //    number, and revokes one for good; which ceilings apply is the server's answer, read by `list`.
 //
-// ⛔ EVERY VERB BORROWS THE KEY ONCE, on either root. The codes come from the key, so a caller that
-//    holds it — this process, or a business's sealed store — lists, makes and revokes them the same
-//    way: a feature works the same whoever holds the key. The functions underneath are the
+// ⛔ EVERY VERB BORROWS THE KEY ONCE, on every root. The codes come from the key, so a caller that
+//    holds it — this process, a business's sealed store, or a device beside a delegation token —
+//    lists, makes and revokes them the same way: a feature works the same whoever holds the key. The functions underneath are the
 //    command-line tool's own (`nmts public-code list · new · revoke`), with the terminal taken off.
 //
 // ⛔ AN IDENTITY IS NEVER TAKEN FROM THE CALLER. What `create` publishes is what the key derives at
 //    that number; there is no form of it that sends bytes somebody handed in.
 //
 // ⚠ A REFUSAL ARRIVES AS THE SERVER'S `ServerError`, with its `code` to branch on:
-//   `TOO_MANY_LIVE_CODES`, `PUBLIC_CODE_DAY_CAP`, `LAST_LIVE_CODE`, `PLATFORM_REPLACE_ONLY`.
+//   `TOO_MANY_LIVE_CODES`, `PUBLIC_CODE_DAY_CAP`, `LAST_LIVE_CODE`, `PLATFORM_REPLACE_ONLY`,
+//   `BUSINESS_DAY_CAP` (a Platform user's business gave out its day of new codes), and
+//   `DELEGATION_SCOPE` for a token without the `share` bit.
 
 import {
   codeActivity,
@@ -25,12 +27,14 @@ import {
   NmtsError,
   publishCode,
   readPublicCodes,
+  registrationProofOf,
   requireCodeIndex,
   revokeCode,
   shareKeyRing,
   shareKeysAt,
   toBase64Url,
   type CodeActivity,
+  type CodeDoor,
   type PublicCodeRow,
   type ShareKeyRing,
 } from "@needmoretruth/nmts-cli/portable";
@@ -108,9 +112,9 @@ function derived(ring: ShareKeyRing, row: PublicCodeRow): string {
   return keys.display;
 }
 
-async function listFor(held: Held, activity: boolean): Promise<PublicCodeList> {
+async function listFor(held: Held, door: CodeDoor, activity: boolean): Promise<PublicCodeList> {
   const crypt = await loadCrypto();
-  const list = await readPublicCodes(held.server, held.bearer);
+  const list = await readPublicCodes(door.server, door.token, door.accountProof);
   const live = liveCodes(list);
   const ordered = [...live, ...list.codes.filter((c) => c.revokedAt !== null)];
   const def = defaultCode(list)?.index ?? null;
@@ -156,43 +160,36 @@ export async function identityAt(code: string, index: number): Promise<PublicCod
 }
 
 /**
- * ⛔ A DELEGATION TOKEN IS TOLD WHO DOES THIS, before its business's store is opened for nothing.
- *    The server keeps an account's code list and its publishing closed to a token: a Platform user
- *    holds one code, and its business replaces it through its own signed batch. Until 2026-11-10
- *    the fake server answered a token here and the delegation rows of these verbs passed while the
- *    real server refused every one (spec 2026-09-20 unit C).
+ * Where the three code doors go, and with what.
+ *
+ * ⛔ A DELEGATION TOKEN SENDS THE CODE'S PROOF ON ALL THREE. The token is its business's
+ *    permission and the proof is the key holder's act, made here from the borrowed key and sent
+ *    straight to the server. The server asks for both, so a business holding the token alone can
+ *    neither publish nor replace its user's code. Until 2026-11-11 these verbs refused a token, and
+ *    a device whose business held no key had no road to a code of its own.
+ * ⚠ An API key needs no proof here, so none is made: the derivation is slow and would buy nothing.
  */
-function refuseDelegation(opened: Opened): void {
-  if (opened.root.identity.kind !== "delegation") return;
-  throw new NmtsError("NOT_FOR_DELEGATION: a delegation token cannot read or change its account's public codes.", {
-    exitCode: 2,
-    nextStep:
-      "Nothing was sent. The business publishes or replaces this account's code with business.setPublicCodes. " +
-      "identityFor still works offline, and share() finds the live code itself.",
-  });
+async function doorOf(opened: Opened, held: Held): Promise<CodeDoor> {
+  if (opened.root.identity.kind !== "delegation") return { server: held.server, token: held.bearer };
+  return { server: held.server, token: held.bearer, accountProof: (await registrationProofOf(held.code)).authSecret };
 }
 
 /** The four verbs on one opened account. */
 export function publicCodesOn(opened: Opened): PublicCodes {
   return {
-    list: async (options = {}) => {
-      refuseDelegation(opened);
-      return withAccount(opened, (held) => listFor(held, options.activity === true));
-    },
-    create: async (options = {}) => {
-      refuseDelegation(opened);
-      return withAccount(opened, async (held) => {
+    list: async (options = {}) =>
+      withAccount(opened, async (held) => listFor(held, await doorOf(opened, held), options.activity === true)),
+    create: async (options = {}) =>
+      withAccount(opened, async (held) => {
         const replace = options.replace === undefined ? undefined : requireCodeIndex(options.replace);
         const crypt = await loadCrypto();
-        const list = await readPublicCodes(held.server, held.bearer);
-        const made = await publishCode(crypt, held.code, { server: held.server, token: held.bearer }, nextCodeIndex(list), replace);
+        const door = await doorOf(opened, held);
+        const list = await readPublicCodes(door.server, door.token, door.accountProof);
+        const made = await publishCode(crypt, held.code, door, nextCodeIndex(list), replace);
         return { index: made.index, code: made.code, address: made.address, revoked: replace ?? null };
-      });
-    },
-    revoke: async (index) => {
-      refuseDelegation(opened);
-      return withAccount(opened, (held) => revokeCode({ server: held.server, token: held.bearer }, requireCodeIndex(index)));
-    },
+      }),
+    revoke: async (index) =>
+      withAccount(opened, async (held) => revokeCode(await doorOf(opened, held), requireCodeIndex(index))),
     identityFor: (index) =>
       withAccount(opened, async (held) => {
         const got = await identityAt(held.code, index);

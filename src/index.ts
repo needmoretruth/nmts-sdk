@@ -136,6 +136,8 @@ export type {
 export type { BuyStorageOptions, BuyStorageResult, BuyStorageReview } from "./storage-buy.ts";
 export type { Balance, Balances, NetworkOption, Price, PriceOptions } from "./money.ts";
 export type { SponsorLimits, Sponsored } from "./sponsor.ts";
+// A business extending its users' files from its own wallet, with their tokens and no key of theirs.
+export type { ExtendForFile, ExtendForOptions, ExtendForResult, UserToken } from "./extend-for.ts";
 export type { ChainOptions } from "./nmts/options.ts";
 export type { QuotedPart, SponsorPolicy, SponsorRefusal, SponsorSpend, SponsorVerdict } from "@needmoretruth/nmts-cli/portable";
 export type { GetResult } from "./get.ts";

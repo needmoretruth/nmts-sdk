@@ -159,19 +159,17 @@ NMTS key and a recovery list file (4.5); its own search for a list from the key 
 wallets the key makes, so it does not find these.
 
 ### 4.4 Keeping files alive
-Storage on Walrus is bought for a period. The server keeps, per account, the end epoch of what it sold, and
-the page warns the user before it runs out. Extending is `nmts.extend(path, { epochs, pay: { signer } })`
-on the device, signed by the operator's server through the same check; the token needs `storage_spend`.
-The page can extend every file that is due each time the user visits (`examples/money/auto-extend.mjs`
-does the same from a scheduled job, for an account whose key a machine holds).
+Storage on Walrus is bought for a period, and the float owns what it paid for, so the operator keeps it
+alive. A daily job on the server mints a token for each paying user with `files_read` and
+`storage_spend` and runs `ops.extendFor(token)`: it extends from the float every file near its end whose
+storage the float holds, and writes the new end into the user's account, with no user key and no visit
+(`examples/money/auto-extend.mjs`). `dryRun: true` prices the run first. The page can also extend on a
+visit with `nmts.extend(path, { epochs, pay: { signer } })`, signed through the same check; that token
+needs `storage_spend`.
 
-When a user stops paying, mark the ledger row unpaid: the server refuses their extensions, and their files
-leave the storage network when the paid term ends. Say so at the moment of sale, not in the terms alone.
-
-**GAP G: extend what the float owns without the user's device.** A user who does not visit cannot extend,
-and the operator, which owns the storage, has no SDK call that extends a blob by its object id from its own
-wallet. With one, the server could keep every paid account's files alive on schedule without anyone opening
-the page.
+When a user stops paying, mark the ledger row unpaid: the job skips them and the server refuses their
+extensions, so their files leave the storage network when the paid term ends. Say so at the moment of
+sale, not in the terms alone.
 
 ### 4.5 Getting files back, and losing everything
 `nmts.list()` and `nmts.get(path)` on the device. A user who loses the NMTS key loses the files: nobody can
@@ -193,11 +191,10 @@ unreadable without the key, until the term that was bought for them ends.
 and `nmts.shares.get(id)` read what came in. A token needs `share` to send. `nmts.unshare(id)` stops new
 downloads and cannot recall a copy already taken.
 
-**GAP H: a user whose key is only on their device cannot publish a public code.** Sharing needs one, and a
-delegation token cannot publish it. `business.setPublicCodes` can, but each item carries the user's
-sign-in secret, which only the user's key makes, so the server could build it only if the device handed
-that secret over, and the operator would then hold the proof that sending a file needs. The device has to
-be able to publish its own code with its token and the key's proof, the way it sends a share.
+A share is sent from the account's public code, and the device publishes its own: the first `share()` or
+`put(file, { shareWith })` does it, or `nmts.publicCodes.create()`. On a token this takes `share` and the
+key's proof, which the device sends to NMTS itself, so the operator, holding only the token, cannot publish,
+replace or revoke a user's code.
 
 ## 5. Tor
 - The operator serves the page and its own API as an onion service; nothing about that involves NMTS.
@@ -224,12 +221,11 @@ be able to publish its own code with its token and the key's proof, the way it s
 | Gap | What is missing |
 |---|---|
 | A | an NMTS key computed from a Sui wallet signature with nothing stored on a server (wallet login through a locked server copy works today) |
-| G | extending a blob the account's wallet owns, by its object id, without the user's device |
-| H | a device that holds the key publishing its own public code with a delegation token |
 
-Shipped since the first edition (2026-09-20): a price with no account (`Nmts.price`), buying storage with no
-file (`buyStorage`), the float paying for a user's upload after checking it (`sponsor`), the recovery list in
-the SDK (`recoveryList`, `setRecoveryCopy`), a `fetch` option and choosable addresses for Tor, and sharing
-(`share`).
+Shipped since the first edition (2026-09-20): a price with no account (`Nmts.price`), buying storage with
+no file (`buyStorage`), the float paying for a user's upload after checking it (`sponsor`) and extending
+what it holds without the user's device (`extendFor`), the recovery list in the SDK (`recoveryList`,
+`setRecoveryCopy`), a `fetch` option and choosable addresses for Tor, and sharing (`share`), with each
+device publishing its own public code.
 
 Copyright © 2026 needmoretruth. This text is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
