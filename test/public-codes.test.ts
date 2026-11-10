@@ -11,7 +11,7 @@ import { loadCrypto, shareKeysAt, toBase64Url } from "@needmoretruth/nmts-cli/po
 
 // ⚠ Sealing a share is not a library call; the test seals one the way `nmts share` does.
 import { sealShare } from "../../cli/src/share.ts";
-import { Nmts, ServerError } from "../src/index.ts";
+import { Nmts, NmtsError, ServerError } from "../src/index.ts";
 import { generateCode, KEY, publicCodesState, startFakeDrive, withSandbox, type FakeDrive } from "./helpers.ts";
 import { rootsUnderTest } from "./roots.ts";
 
@@ -21,7 +21,9 @@ before(async () => {
 });
 after(() => drive.close());
 
-for (const { name, root, opens } of rootsUnderTest()) {
+// ⛔ A DELEGATION TOKEN DOES NOT REACH THESE DOORS on the real server, and the fake drive now refuses
+//    it by the server's own table; its row is the refusal test at the end of this file.
+for (const { name, root, opens } of rootsUnderTest().filter((r) => r.name !== "delegation")) {
   const client = (code: string): Nmts =>
     new Nmts(root({ accountCode: code, apiKey: KEY }), { server: drive.base, network: "testnet" });
 
@@ -99,6 +101,26 @@ for (const { name, root, opens } of rootsUnderTest()) {
       assert.deepEqual(listed.codes.find((c) => c.index === 0)?.activity, { sent: [], received: [] });
       sender.wipe();
       mine.wipe();
+    });
+  });
+}
+
+for (const { name, root, opens } of rootsUnderTest().filter((r) => r.name === "delegation")) {
+  test(`[${name}] list, create and revoke refuse by name before anything is sent; identityFor still derives`, async () => {
+    await withSandbox(drive, `sdk-codes-${name}`, async (code) => {
+      const nmts = new Nmts(root({ accountCode: code, apiKey: KEY }), { server: drive.base, network: "testnet" });
+      const calls = drive.calls.length;
+      const refused = (error: unknown): boolean =>
+        error instanceof NmtsError && /^NOT_FOR_DELEGATION/.test(error.message) && /setPublicCodes/.test(error.nextStep ?? "");
+      await assert.rejects(nmts.publicCodes.list(), refused);
+      await assert.rejects(nmts.publicCodes.create(), refused);
+      await assert.rejects(nmts.publicCodes.revoke(0), refused);
+      assert.equal(drive.calls.length, calls, "a refused verb still sent a request");
+      assert.equal(opens(), 0, "a refused verb opened the key");
+      const crypt = await loadCrypto();
+      const keys = shareKeysAt(crypt, code, 2);
+      assert.equal((await nmts.publicCodes.identityFor(2)).code, keys.display);
+      keys.wipe();
     });
   });
 }

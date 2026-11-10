@@ -34,7 +34,7 @@ import {
 import { setPublicCodesWith, type PublicCodeDoor } from "./business-codes.ts";
 export type { PublicCodeResult, PublicCodeUser } from "./business-codes.ts";
 
-/** The five things a delegation token may carry, by name. The command-line package owns the list. */
+/** The six things a delegation token may carry, by name. The command-line package owns the list. */
 export type { ScopeName } from "@needmoretruth/nmts-cli/portable";
 
 /** Where a business talks. The network is not among these: no door here touches a chain. */

@@ -29,6 +29,7 @@ import { paysFromWallet } from "../pay.ts";
 import { isHeavy, putHeavy, refuseHeavyOnStandard, type HeavyPut, type HeavyPutOptions, type HeavyReview } from "../put-heavy.ts";
 import { putSourceWithWallet } from "../put-wallet.ts";
 import type { Opened } from "../session.ts";
+import { checkShareCodes, shareStored, type SentShare } from "../shares.ts";
 import { blobSource } from "../source-blob.ts";
 
 /**
@@ -47,7 +48,39 @@ export async function putVia(
   if (!heavy) refuseHeavyOnStandard(options);
   const { source, name: own } = sourceOf(file);
   const name = options.name ?? own;
-  if (heavy) return putHeavy(opened, source, name, options);
+  // ⛔ BOTH TIERS SHARE. Until 2026-11-10 Heavy took `shareWith` and dropped it: the file was stored
+  //    and shared with nobody, and nothing said so. The server shares a Heavy file like any other.
+  if (heavy) {
+    const { shareWith, ...stored } = options;
+    return withShares(opened, shareWith, () => putHeavy(opened, source, name, stored));
+  }
+  const { shareWith, ...stored } = options;
+  return withShares(opened, shareWith, () => putStandard(opened, source, name, stored));
+}
+
+/**
+ * An upload, then a share of it with each code in `shareWith`.
+ *
+ * ⛔ THE CODES ARE CHECKED BEFORE A BYTE IS READ: a typo costs nothing. After the upload a failed
+ *    share leaves the file where it is, and `ShareAfterUploadError` says that it did.
+ */
+export async function withShares<R extends Shareable>(
+  opened: Opened,
+  shareWith: readonly string[] | undefined,
+  put: () => Promise<R>,
+): Promise<R> {
+  if (shareWith === undefined || shareWith.length === 0) return put();
+  await checkShareCodes(shareWith);
+  const result = await put();
+  const stored: Shareable = result;
+  if (!stored.dryRun) stored.shares = await shareStored(opened, stored, shareWith);
+  return result;
+}
+
+/** What either tier answers, as far as a share after it reads: a review shares nothing. */
+type Shareable = { dryRun: true } | { dryRun: false; name: string; path: string; id: string; shares?: SentShare[] };
+
+async function putStandard(opened: Opened, source: PlaintextSource, name: string, options: PutOptions): Promise<PutResult | PutReview> {
   const { thumbnail, ...rest } = options;
   if (thumbnail === undefined) return putOne(opened, source, name, rest);
   // A video's preview picture is a second, ordinary upload linked to it (gallery spec §7 ·

@@ -24,11 +24,12 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are twenty-seven methods: `account`, `walletAddress`,
+method that is not in `dist/index.d.ts`. There are twenty-nine methods: `account`, `walletAddress`,
 `wallets`, `setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`,
 `restore`, `erase`, `makeLink`, `listLinks`, `allLinks`, `revokeLink`, `revokeAllLinks`,
 `recoveryList`, `recoveryCopy`, `setRecoveryCopy`, `storage`, `extend`, `splitStorage`,
-`mergeStorage`, `transferStorage`; two getters, `openers` and `publicCodes`; and the statics that
+`mergeStorage`, `transferStorage`, `share`, `unshare`; three getters, `openers`, `publicCodes` and
+`shares`; and the statics that
 make a client: `device`, `managed`, `fromWallet` and `fromEnv` (`business` makes the business client).
 
 | | What it does | Where it comes from |
@@ -67,13 +68,19 @@ browser) opens accounts for the users of its own product and signs for them.
 | `business.registerUser()` | one signed request | returns the new `accountCode` once — store it sealed, never log it |
 | `business.users({ after?, limit? })` | one signed request | `{ users: [{ accountId, createdAt, status }], next }`; pass `next` as `after` until it is null; `limit` 1 to 1000, anything else refused before sending |
 | `business.usage()` | one signed request | `{ members, usersToday, usersDayCap, files, storedBytes, asOf }` across the business's accounts |
-| `business.delegate({ user, scope, ttlSecs })` | nothing | a token for one user; at most 30 days; scopes `files_read` · `files_write` · `storage_spend` · `register` · `files_erase` |
+| `business.delegate({ user, scope, ttlSecs })` | nothing | a token for one user; at most 30 days; scopes `files_read` · `files_write` · `storage_spend` · `register` · `files_erase` · `share` |
 | `business.rotateKey(newPrivateKey)` | one signed request | every token the old key signed stops working at once — ask the person first |
 | `business.setPublicCodes([{ root, next? }])` | one signed request per 100 users | replaces each user's public code; each item is built from that user's root — its identity and sign-in secret — so only a holder of the user's key can build one. One `{ ok, index, code }` or `{ ok: false, error }` per user |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | one request | the device opens its own account; the token must carry `register` |
 
 `erase()` needs the scope `files_erase`; `files_write` alone answers `DELEGATION_SCOPE`. The server also asks
 for the NMTS key's proof on that request, which the client makes from the key it holds.
+
+`share()`, `put({ shareWith })` and `makeLink()` need the scope `share` and the same proof, made the
+same way. Reading shares and links needs `files_read`; `unshare()` and `revokeLink()` need
+`files_write`. A token cannot list or publish its account's public codes: the business does that
+with `setPublicCodes`, and `publicCodes.list/create/revoke` answer `NOT_FOR_DELEGATION` before
+sending anything.
 
 A delegation token takes the place of `apiKey` in `Nmts.device()` and `Nmts.managed()`. It cannot
 delete the account, make API keys or reach the key that opens the files (`DELEGATION_SCOPE`), and
@@ -141,6 +148,9 @@ of them is one.
 | `wallets()` | nothing | server + chain | `{ index, address, active }[]`: the wallets this account made, plus any funded one within twenty of them |
 | `setActiveWallet(n)` | nothing | server | Which of this key's wallets pays from now on. Written into the account's sealed list, so every device follows |
 | `publicCodes.list({ activity? })` · `.create({ replace? })` · `.revoke(n)` · `.identityFor(n)` | nothing | server (`identityFor`: none) | The account's public codes, numbered from its NMTS key: list them, publish the next (`replace` revokes one in the same request), revoke one for good, or derive one offline. Refusals arrive as `ServerError` with `TOO_MANY_LIVE_CODES`, `PUBLIC_CODE_DAY_CAP`, `LAST_LIVE_CODE` or `PLATFORM_REPLACE_ONLY` |
+| `share(path, publicCode, { as? })` | nothing | server | Gives the account behind that public code the key to this one file. Publishes this account's first public code if it has none; a delegation token cannot, so its business publishes one first with `setPublicCodes`. `{ id, name, recipient, fromIndex }`. Withdrawing later stops new downloads and cannot recall a copy already taken |
+| `unshare(id)` | nothing | server | Ends a share by its id, sent or received. A received one leaves the sender's file alone |
+| `shares.received()` · `.get(id)` · `.get(id, to, { maxBytes?, force? })` · `.sent(path)` | nothing | server (+ Walrus for `get`) | Shares sent to this account, opened with its own codes; one file's bytes, checked against the hash the sender sealed (`get(id)` answers the bytes, `get(id, to)` writes a file, Node only); and who a file is shared with |
 | `list()` | nothing | server | Every live file and folder as `{ id, path, kind, size, createdAt, updatedAt }`. Trash left out |
 | `list({ trash: true })` | nothing | server | The same list with what is in the trash included; those entries carry `trashedAt` |
 | `mkdir(path)` | nothing | server | Makes the folder and any missing folder above it. A folder already there is a success. `{ path, created }` |
@@ -151,7 +161,7 @@ of them is one.
 | `restore(paths)` | nothing | server | Back out of the trash. `{ restored }` |
 | `recoveryList()` | nothing | server | The recovery list, the same file `nmts recovery-list` writes: `{ filename, content, seq, files, bytes, missing }`. It opens with the NMTS key alone; give it to the person to keep. The server is told its number. |
 | `recoveryCopy()` · `setRecoveryCopy(on)` | nothing | server | Whether small wallet uploads also carry the newest list to Walrus (`{ on, written }`), and turning that on or off. With it on, `put({ pay: "wallet" })` of one part under 64 MiB onto new storage carries it and reports `recoveryList` and `recoveryProblem`; the upload never fails because of it. |
-| `put(file, { name?, to?, onCollision?, partSize?, pay?, wallet?, epochs?, storage?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` or `pay: { signer }` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`; `onCollision: "overwrite"` stores under the name and sends the old file to the trash (30 days), `"rename"` numbers it, for that call only; absent, this machine's `nmts on-collision` setting decides. `wallet`, `epochs` and `storage` are refused unless a wallet is paying, and `wallet` with `pay: { signer }` is `TWO_PAYERS` |
+| `put(file, { name?, to?, onCollision?, partSize?, pay?, wallet?, epochs?, storage?, shareWith?, dryRun?, onStep?, onProgress? })` | **credits**, or **WAL + SUI** with `pay: "wallet"` or `pay: { signer }` | server + storage network | `file` is a path (Node only), `{ name, bytes }`, `{ name, blob }` or a bare `Uint8Array` with `name` in the options. A path uses the file's own name. `to` is a folder that must exist. A taken name is numbered `(2)`; `onCollision: "overwrite"` stores under the name and sends the old file to the trash (30 days), `"rename"` numbers it, for that call only; absent, this machine's `nmts on-collision` setting decides. `wallet`, `epochs` and `storage` are refused unless a wallet is paying, and `wallet` with `pay: { signer }` is `TWO_PAYERS`. `shareWith` shares the stored file with those public codes, on either tier; a share that fails leaves the upload and throws `ShareAfterUploadError` |
 | `get(path, { maxBytes? })` | nothing | server + storage network | Whole file in memory, checked first. Refuses over 256 MiB unless raised — use `getTo` |
 | `getTo(path, destination, { force? })` | nothing | server + storage network | Streams to disk through a temporary name; refuses an existing file unless `force`. Node only |
 | `blobSource(blob, name)` | nothing | none | A `Blob` as an upload's bytes, for a file picker, a drag or a `fetch` |
@@ -231,8 +241,8 @@ const nmts = await Nmts.fromWallet({ sign, address, apiKey });   // or `delegati
 
 Opens an account with a Sui wallet instead of a typed NMTS key. The wallet signs one fixed message;
 that signature finds and opens a copy of the account's NMTS key that the NMTS server keeps locked.
-NMTS cannot open the copy and does not learn which wallet it belongs to. What comes back is an
-ordinary device client: every method works.
+NMTS cannot open the copy and does not learn which wallet it belongs to. What comes back is the
+same client `Nmts.device()` makes.
 
 `sign(messageBytes)` answers what the wallet standard answers — `{ signature, bytes }`, or the
 serialized signature alone. In a page that is `useDAppKit().signPersonalMessage()` from `@mysten/dapp-kit-react`. `account`
@@ -299,10 +309,6 @@ putOptions?, bucketNames?, virtualHostBase?, stagingDir?, log?, now? })`, which 
   a plain `(req, res)` function for a server the person already runs behind TLS.
 
 ## What this library does not do
-
-- **Sharing a file.** It exists as a command of the command-line tool (`nmts share`) and is not a
-  library call yet, in this package or in that one. Run the command; do not look for an import. The
-  account's public codes are a library call: `publicCodes`, and so is the recovery list: `recoveryList()`.
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.

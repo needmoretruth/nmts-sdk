@@ -155,20 +155,44 @@ export async function identityAt(code: string, index: number): Promise<PublicCod
   }
 }
 
+/**
+ * ⛔ A DELEGATION TOKEN IS TOLD WHO DOES THIS, before its business's store is opened for nothing.
+ *    The server keeps an account's code list and its publishing closed to a token: a Platform user
+ *    holds one code, and its business replaces it through its own signed batch. Until 2026-11-10
+ *    the fake server answered a token here and the delegation rows of these verbs passed while the
+ *    real server refused every one (spec 2026-09-20 unit C).
+ */
+function refuseDelegation(opened: Opened): void {
+  if (opened.root.identity.kind !== "delegation") return;
+  throw new NmtsError("NOT_FOR_DELEGATION: a delegation token cannot read or change its account's public codes.", {
+    exitCode: 2,
+    nextStep:
+      "Nothing was sent. The business publishes or replaces this account's code with business.setPublicCodes. " +
+      "identityFor still works offline, and share() finds the live code itself.",
+  });
+}
+
 /** The four verbs on one opened account. */
 export function publicCodesOn(opened: Opened): PublicCodes {
   return {
-    list: (options = {}) => withAccount(opened, (held) => listFor(held, options.activity === true)),
-    create: (options = {}) =>
-      withAccount(opened, async (held) => {
+    list: async (options = {}) => {
+      refuseDelegation(opened);
+      return withAccount(opened, (held) => listFor(held, options.activity === true));
+    },
+    create: async (options = {}) => {
+      refuseDelegation(opened);
+      return withAccount(opened, async (held) => {
         const replace = options.replace === undefined ? undefined : requireCodeIndex(options.replace);
         const crypt = await loadCrypto();
         const list = await readPublicCodes(held.server, held.bearer);
         const made = await publishCode(crypt, held.code, { server: held.server, token: held.bearer }, nextCodeIndex(list), replace);
         return { index: made.index, code: made.code, address: made.address, revoked: replace ?? null };
-      }),
-    revoke: (index) =>
-      withAccount(opened, (held) => revokeCode({ server: held.server, token: held.bearer }, requireCodeIndex(index))),
+      });
+    },
+    revoke: async (index) => {
+      refuseDelegation(opened);
+      return withAccount(opened, (held) => revokeCode({ server: held.server, token: held.bearer }, requireCodeIndex(index)));
+    },
     identityFor: (index) =>
       withAccount(opened, async (held) => {
         const got = await identityAt(held.code, index);

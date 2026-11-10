@@ -60,9 +60,13 @@ test("the package exports one class, and its methods are the ones the README sho
     "revokeLink",
     "setActiveWallet",
     "setRecoveryCopy",
+    "share",
+    // ⚠ A getter as well: the README shows `nmts.shares.received()` and its two siblings.
+    "shares",
     "splitStorage",
     "storage",
     "transferStorage",
+    "unshare",
     "walletAddress",
     "wallets",
   ]);
@@ -89,14 +93,16 @@ test("AGENTS.md lists every method and getter the class has, under the count it 
   //    openers and public codes had shipped beside it: a coding agent reading it was told those
   //    did not exist. Nothing compared the sentence with the class, so it drifted with every verb.
   const text = readFileSync(join(here, "AGENTS.md"), "utf8");
-  const m = /There are ([a-z-]+) methods: ([^;]+); two getters, ([^;]+);/.exec(text);
+  const m = /There are ([a-z-]+) methods: ([^;]+); ([a-z]+) getters, ([^;]+);/.exec(text);
   assert.ok(m !== null, "AGENTS.md lost the sentence that lists the methods");
   const names = (part: string): string[] => [...part.matchAll(/`(\w+)`/g)].map((x) => x[1] ?? "");
   const methods = names(m[2] ?? "");
-  const listed = [...methods, ...names(m[3] ?? "")].sort();
+  const getters = names(m[4] ?? "");
+  const listed = [...methods, ...getters].sort();
   const proto = Object.getOwnPropertyNames(sdk.Nmts.prototype).filter((n) => n !== "constructor").sort();
   assert.deepEqual(listed, proto);
   assert.equal(m[1], numberWord(methods.length), "the count in the sentence is not the number of methods it lists");
+  assert.equal(m[3], numberWord(getters.length), "the count of getters is not the number it lists");
 });
 
 /**

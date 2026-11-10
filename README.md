@@ -81,6 +81,29 @@ Which row a product is on is that product's own statement. NMTS does not inspect
 is built with this library, and the server cannot tell the rows apart: the NMTS key never reaches
 it. The library comes as the [licence](#licence) says, without warranty.
 
+### Who can open a file
+
+An upload is encrypted with the NMTS key of the account it goes into, and only a holder of that
+key can open it. A share gives one other account the key to one file.
+
+| Who should open the files | How |
+|---|---|
+| the person only | `Nmts.device()`: the NMTS key stays on the person's device |
+| your service only | `Nmts.managed()`: your service holds the NMTS key for the person |
+| both | `Nmts.device()` for the person, and `share(path, yourPublicCode)` or `put(file, { shareWith: [yourPublicCode] })` to an account your service holds |
+
+`unshare(id)` withdraws a share: new downloads stop, and a copy already taken stays with whoever
+took it.
+
+The bytes of an upload take one of two roads, chosen per product:
+
+- **From the person's device.** The device encrypts and uploads, and your server never sees the
+  file, not even encrypted. With a delegation token your server still decides what the device may do.
+- **Relayed by your service.** The device sends the file to your server, which calls `put()`. Your
+  server sees the file before it is encrypted.
+
+On both roads NMTS receives only encrypted bytes, their sizes and times.
+
 ## Recipes
 
 Runnable files in [`examples/`](examples/), one per shape:
@@ -299,6 +322,12 @@ await nmts.listLinks("photos/a.jpg")   // every link to that file, cut ones incl
 await nmts.revokeLink(id)              // cut one; copies already downloaded stay with whoever has them
 await nmts.allLinks()                  // every live link across the account's files, each with its file's path
 await nmts.revokeAllLinks()            // cut every live link in one request; answers how many
+await nmts.share("memo.txt", publicCode)   // { id, name, recipient, fromIndex } — that account can open this file
+await nmts.shares.received()           // { shares, total } — what other accounts shared with this one
+await nmts.shares.get(id)              // { name, bytes, sender, ... } — checked against the sender's hash
+await nmts.shares.get(id, "./out")     // the same, written to a file — Node only
+await nmts.shares.sent("memo.txt")     // [{ id, recipient, createdAt, fromIndex, recipientRevoked }]
+await nmts.unshare(id)                 // end a share, sent or received
 await Nmts.openLink(link)              // { name, bytes } — no account; checked against the owner's hash
 await nmts.list()             // Entry[]: { id, path, kind, size, createdAt, updatedAt }, trash left out
 await nmts.list({ trash: true })   // the same, with what is in the trash; those entries carry trashedAt
@@ -312,7 +341,7 @@ await nmts.erase("old.pdf", { confirm: ERASE_CONFIRM })   // { erased, storage }
 await nmts.recoveryList()          // { filename, content, seq, files, bytes, missing } — the file `nmts recovery-list` writes
 await nmts.recoveryCopy()          // { on, written } — whether small wallet uploads carry the list to Walrus
 await nmts.setRecoveryCopy(true)   // turn that copy on (or off) from the next upload
-await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, thumbnail?, dryRun?, onStep?, onProgress? })
+await nmts.put(file, { name?, to?, partSize?, pay?, wallet?, epochs?, storage?, thumbnail?, shareWith?, dryRun?, onStep?, onProgress? })
 await nmts.get(path, { maxBytes?, thumbnail? })     // Uint8Array; 256 MiB ceiling unless raised
 await nmts.getTo(path, destination, { force? })     // streams to disk, no ceiling — Node only
 await nmts.storage({ pay? })                        // [{ id, sizeBytes, startEpoch, endEpoch, status }] — asks the chain
@@ -340,6 +369,12 @@ blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker,
   `storage_spend`, and the client reads the token's scope before anything is signed.
   `transferStorage()` cannot be undone and moves no file: what goes is size and remaining time.
 
+- **Sharing gives one other account the key to one file.** `share()` publishes this account's
+  first public code if it has none; a delegation token cannot, so its business publishes one first
+  with `setPublicCodes`. `put(file, { shareWith })` uploads on either tier, then shares. When a
+  share fails after the upload, the file stays in the account and the error is
+  `ShareAfterUploadError` with `upload`, `shared` and `failedFor`: share again rather than upload
+  again.
 - **`mkdir`, `move`, `rename`, `remove` and `restore` spend nothing.** With a delegation token
   they need the `files_write` scope. `move`, `remove` and `restore` take one path or an array.
 - **A name already in use refuses a move, a rename or a restore** with `code: "NAME_TAKEN"`; nothing
@@ -416,8 +451,8 @@ const nmts = await Nmts.fromWallet({ sign, address, apiKey });   // or `delegati
 
 Opens an account with a Sui wallet instead of a typed NMTS key. The wallet signs one fixed message;
 that signature finds and opens a copy of the account's NMTS key that the NMTS server keeps locked.
-NMTS cannot open the copy and does not learn which wallet it belongs to. What comes back is an
-ordinary device client: every method works.
+NMTS cannot open the copy and does not learn which wallet it belongs to. What comes back is the
+same client `Nmts.device()` makes.
 
 `sign(messageBytes)` answers what the wallet standard answers — `{ signature, bytes }`, or the
 serialized signature alone. In a page that is `useDAppKit().signPersonalMessage()` from `@mysten/dapp-kit-react`. `account`
@@ -509,13 +544,17 @@ const token = await business.delegate({
 | `Nmts.newAccountCode()` · `Nmts.accountIdOf(code)` | the device | a new NMTS key, and its public id; nothing is sent |
 | `Nmts.registerWithDelegation({ accountCode, delegation })` | the device | opens the device's own account with a token that carries `register` |
 
-Scopes are `files_read`, `files_write`, `storage_spend`, `register` and `files_erase`. `erase()` needs
+Scopes are `files_read`, `files_write`, `storage_spend`, `register`, `files_erase` and `share`. `erase()` needs
 `files_erase`; `files_write` alone is refused. The server also asks for the NMTS key's own proof on
 that request, which the client makes from the key it holds — so erasing through a token takes the
 business's permission and the key holder's act together. The recovery list works the same way:
 `recoveryList()` needs `files_read`, `setRecoveryCopy()` needs `files_write`, and both send the
-key's proof; `recoveryCopy()` needs `files_read` only. A delegation token takes the
-place of `apiKey` in `Nmts.device()` and `Nmts.managed()`, and every method works with it. It
+key's proof; `recoveryCopy()` needs `files_read` only. `share()`, `put({ shareWith })` and
+`makeLink()` need `share` and the key's proof; reading shares and links needs `files_read`, and
+`unshare()` and `revokeLink()` need `files_write`. A token cannot list or publish its account's
+public codes: your server does that with `setPublicCodes`, and `publicCodes.list/create/revoke`
+answer `NOT_FOR_DELEGATION`. A delegation token takes the place of `apiKey` in `Nmts.device()` and
+`Nmts.managed()`, and every other method works with it as its scope allows. It
 cannot delete the account, make API keys, or reach the key that opens the files; the server refuses
 those with `DELEGATION_SCOPE`.
 
@@ -638,10 +677,6 @@ Two things to know before relying on it:
   it. The ceiling is 16 MiB sealed — about 60,000 files. Past that, use more accounts.
 - **Rate and spend ceilings** exist on the server: one account may spend 4,096 credits (4 GiB) a
   day, and a person must pass the human check every twelve weeks for the things it gates.
-- **Sharing a file and the recovery list** are in the
-  [command-line tool](https://github.com/needmoretruth/nmts-cli) as commands (`nmts share`,
-  `nmts recovery-list`), not in this package, and that tool does not export them as library calls
-  yet. Both are planned for this package. The account's public codes are here: `publicCodes`.
 
 
 ## Building from source

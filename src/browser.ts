@@ -83,6 +83,9 @@ export type {
 } from "./organise.ts";
 export type { ActiveWallet, WalletInfo } from "./wallets.ts";
 export type { CreatedPublicCode, PublicCodeIdentity, PublicCodeInfo, PublicCodeList, PublicCodes } from "./public-codes.ts";
+// Sharing one file with another account: what `share`, `shares` and `put({ shareWith })` answer.
+export { ShareAfterUploadError } from "./shares.ts";
+export type { ReceivedBytes, ReceivedShare, ReceivedTo, ReceiveOptions, SentShare, SentShareRow, ShareOptions, Shares } from "./shares.ts";
 export type { CodeActivity, ReceivedThrough, SentThrough } from "@needmoretruth/nmts-cli/portable";
 // Which money buys the storage, and the wallet a caller holds the key to.
 export type { ExternalSigner, PayerOptions, PayFrom } from "./pay.ts";

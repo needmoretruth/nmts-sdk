@@ -40,6 +40,7 @@ import type { MkdirResult, MoveResult, RemoveResult, RenameResult, RestoreResult
 import * as links from "./links.ts";
 import { publicCodesOn, type PublicCodes } from "./public-codes.ts";
 import { recoveryCopyOf, recoveryListOf, setRecoveryCopyOf, type RecoveryCopy, type RecoveryList } from "./recovery.ts";
+import { shareFile, sharesOn, unshareOf, type SentShare, type ShareOptions, type Shares } from "./shares.ts";
 import type { HeavyPut, HeavyPutOptions, HeavyReview, PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
 import type { PayerOptions } from "./pay.ts";
@@ -79,18 +80,10 @@ export class Nmts {
   }
 
   /**
-   * A BUSINESS's own client: its Platform doors, and the tokens it mints for its users.
-   *
-   * ⛔ IT REFUSES BY NAME IN A PAGE rather than being missing from the browser entry — the three
-   *    calls that need files already do that, so a program moved into a page fails with a sentence
-   *    instead of an import that is suddenly not there. And what is wrong in a page is not the
-   *    runtime: a business's signing key in a page is that key handed to everyone who opens it. A
-   *    page holds a delegation token; the key stays on the business's own server.
-   *
-   * ⚠ OF THE ADDRESSES, ONLY `server` MEANS ANYTHING, and the rest are taken so that one options
-   *   object can be handed to both clients. No Platform door touches a chain, the storage network
-   *   or the engine. ⛔ `fetch` IS THE EXCEPTION AND IT IS READ: these doors make requests, and a
-   *   business that routes its traffic through a proxy must not have this one road round it.
+   * A BUSINESS's own client: its Platform doors, and the tokens it mints for its users. ⛔ It
+   * refuses by name in a page, where its signing key would be handed to everyone (`businessClient`).
+   * ⚠ Of the addresses only `server` means anything: no Platform door touches a chain, the storage
+   * network or the engine. ⛔ `fetch` is read too, so a business's proxy has no road round it.
    */
   static business(credentials: BusinessCredentials & NmtsOptions): Business {
     useOptions(optionsOf(credentials));
@@ -98,12 +91,11 @@ export class Nmts {
   }
 
   /**
-   * A device client whose account is opened by a WALLET rather than by a code somebody typed.
-   * The wallet signs one fixed message; that signature names the sealed slot holding this
-   * account's key and is the only thing that opens it. What comes back is an ordinary device
-   * client — the key is in this process exactly as `Nmts.device()`'s is, and whoever holds the
-   * wallet holds the account. `account` picks which of that wallet's accounts (default 1) and
-   * `app` scopes the signature to one product; both are inside what the person signs.
+   * A device client whose account is opened by a WALLET rather than by a typed code. The wallet signs
+   * one fixed message; that signature names the sealed slot holding this account's key and is the
+   * only thing that opens it. The key is then in this process as `Nmts.device()`'s is, and whoever
+   * holds the wallet holds the account. `account` picks which of the wallet's accounts (default 1)
+   * and `app` scopes the signature to one product; both are inside what the person signs.
    */
   static async fromWallet(input: WalletCredentials & NmtsOptions): Promise<Nmts> {
     // ⛔ BEFORE THE FIRST REQUEST, not in the constructor below: finding the slot is a request, and
@@ -189,30 +181,21 @@ export class Nmts {
     return publicCodesOn(this.#account());
   }
 
-  /**
-   * Every wallet this account has — the ones it has made, and any further out that a chain says
-   * have been used — with the one that pays marked. Nothing is spent and nothing is written.
-   */
+  /** Every wallet this account has, made here or seen used on a chain, the paying one marked. Nothing is spent or written. */
   async wallets(): Promise<WalletInfo[]> {
     return wallets(this.#account());
   }
 
   /**
-   * Say which of this key's wallets pays for storage from now on.
-   *
-   * It is the ACCOUNT's choice and not this machine's: the number rides inside the sealed file
-   * list, so every device and every program on this account pays from the same address afterwards.
-   * Nothing is created or deleted — every number a key can derive already exists.
+   * Say which of this key's wallets pays for storage from now on. It is the ACCOUNT's choice, not this
+   * machine's: the number rides inside the sealed file list, so every device and program on this
+   * account pays from that address afterwards. Nothing is created — every number already exists.
    */
   async setActiveWallet(index: number): Promise<ActiveWallet> {
     return setActiveWallet(this.#account(), index);
   }
 
-  /**
-   * Every live file and folder, as paths. Nothing is spent.
-   *
-   * `{ trash: true }` includes what is in the trash as well, and each of those carries `trashedAt`.
-   */
+  /** Every live file and folder, as paths. Nothing is spent. `{ trash: true }` adds the trash, each with `trashedAt`. */
   async list(options: ListOptions = {}): Promise<Entry[]> {
     return listEntries(this.#account(), options);
   }
@@ -374,6 +357,21 @@ export class Nmts {
   /** Cut every live link in one request, all or none, and answer how many. No copy already downloaded is reached. */
   async revokeAllLinks(): Promise<number> {
     return links.revokeAllLinksOf(this.#account());
+  }
+
+  /** Seal one file to another account's public code and send it. ⛔ Calling is the decision; an opened share cannot be recalled. */
+  async share(path: string, publicCode: string, options: ShareOptions = {}): Promise<SentShare> {
+    return shareFile(this.#account(), path, publicCode, options);
+  }
+
+  /** Withdraw a share this account sent, or remove one it was sent. A copy already taken stays taken. */
+  async unshare(id: string): Promise<void> {
+    return unshareOf(this.#account(), id);
+  }
+
+  /** What was shared with this account, receiving one, and who one of its files went to. */
+  get shares(): Shares {
+    return sharesOn(this.#account(), () => this.#read());
   }
 
   /** The recovery list, the file `nmts recovery-list` writes; the server is told its number. Nothing is spent. */

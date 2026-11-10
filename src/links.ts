@@ -17,6 +17,7 @@ import {
   makeLink,
   NmtsError,
   openLink,
+  registrationProofOf,
   resolveNetwork,
   resolveServer,
   revokeAllLinks,
@@ -54,6 +55,16 @@ export interface OpenedLinkBytes {
 
 const accountOf = (held: Held): LinkAccount => ({ server: held.server, bearer: held.bearer, code: held.code });
 
+/**
+ * ⛔ MAKING A LINK CARRIES THE CODE'S PROOF, and nothing else here does. A delegation token reaches
+ *    that door only with its `share` bit and the proof; a link hands the file's key to whoever holds
+ *    it, so the proof is the key holder's own act beside the business's permission.
+ */
+const makingAccountOf = async (held: Held): Promise<LinkAccount> => ({
+  ...accountOf(held),
+  accountProof: (await registrationProofOf(held.code)).authSecret,
+});
+
 async function fileAt(held: Held, path: string): Promise<ManifestEntry> {
   const { entries } = await readList(held);
   if (entries.length === 0) {
@@ -72,7 +83,7 @@ export async function makeLinkAt(opened: Opened, path: string, options: MakeLink
     throw new NmtsError("expiresDays takes a whole number of days from 1 to 3650.", { exitCode: 2 });
   }
   return withAccount(opened, async (held) =>
-    makeLink(accountOf(held), await fileAt(held, path), { showName: options.hideName !== true, expiresDays: days }),
+    makeLink(await makingAccountOf(held), await fileAt(held, path), { showName: options.hideName !== true, expiresDays: days }),
   );
 }
 

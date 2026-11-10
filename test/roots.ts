@@ -68,8 +68,9 @@ const DELEGATION_TOKEN = mintDelegation({
   //    server. The registry's job is to prove a verb works through this root, and a token that
   //    could not reach one of them would make that verb's delegation row a test of the scope
   //    rather than of the verb. What a token WITHOUT `storage_spend` does is `storage.test.ts`'s
-  //    own question, and it mints one of its own to ask it.
-  scope: ["files_read", "files_write", "storage_spend", "files_erase"],
+  //    own question, and it mints one of its own to ask it. `share` sends a share or makes a link;
+  //    the fake drive now refuses a token by the server's own table (`cli/test/fake-delegation.ts`).
+  scope: ["files_read", "files_write", "storage_spend", "files_erase", "share"],
   ttlSecs: 3_600,
 });
 

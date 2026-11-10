@@ -54,6 +54,7 @@ import {
 import { readList } from "./list.ts";
 import { destinationOf, pathOf, requireName, type PutOptions } from "./put.ts";
 import { withAccount, withDataKey, type Held, type Opened } from "./session.ts";
+import type { SentShare } from "./shares.ts";
 import { requireWalletIndex } from "./wallets.ts";
 
 /** Who pays for a Heavy upload. `{ signer }` here is an EVM account, not a Sui wallet. */
@@ -82,6 +83,8 @@ export interface HeavyPutOptions {
   dryRun?: boolean | undefined;
   /** Told about each part as it is sealed, sent and stored. */
   onProgress?: ((event: HeavyProgress | SelfPayProgress) => void) | undefined;
+  /** Public codes to share it with once it is stored, as for Standard. A failed share leaves the upload: `ShareAfterUploadError`. */
+  shareWith?: readonly string[] | undefined;
 }
 
 type HeavyPayer = "credits" | "wallet" | "evm";
@@ -117,6 +120,8 @@ export interface HeavyPut extends HeavyFacts {
   paidBy: string | null;
   /** How many companies kept a whole copy of each part; null unless an EVM wallet paid. */
   copies: number[] | null;
+  /** When `shareWith` was passed: each share sent, in that order. */
+  shares?: SentShare[];
 }
 
 export interface HeavyReview extends HeavyFacts {

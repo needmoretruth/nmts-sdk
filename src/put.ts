@@ -38,6 +38,7 @@ import {
 
 import { readList } from "./list.ts";
 import type { PayFrom } from "./pay.ts";
+import type { SentShare } from "./shares.ts";
 import { collisionOf, type OnCollision } from "./put/collision.ts";
 import { withAccount, withDataKey, type Opened } from "./session.ts";
 
@@ -64,10 +65,8 @@ export interface PutOptions {
    * sends the old one to the trash (30 days). Absent = this machine's `nmts on-collision`. */
   onCollision?: OnCollision | undefined;
   /**
-   * How much of the file goes into one part, in bytes. Defaults to 64 MiB.
-   *
-   * Bigger parts mean fewer reservations against the account's daily allowance; smaller parts
-   * mean less memory and a shorter piece of work to lose when something goes wrong.
+   * How much of the file goes into one part, in bytes. Defaults to 64 MiB. Bigger parts mean fewer
+   * reservations against the daily allowance; smaller ones less memory and less work to lose.
    */
   partSize?: number | undefined;
   /**
@@ -114,12 +113,11 @@ export interface PutOptions {
   onStep?: ((step: FileUploadStep) => void) | undefined;
   /** Told as sealed bytes leave for the relay — the honest measure of an upload's progress. */
   onProgress?: ((sent: number, total: number) => void) | undefined;
-  /**
-   * For a video: a small picture (a JPEG frame) sent after it as `<saved name>.thumb.jpg`, linked
-   * to it so every app shows it as the video's tile. It is a second upload, priced and paid for
-   * on the same rail; its answer is the video's `thumbnail`. Refused for a file that is not a video.
-   */
+  /** For a video: a JPEG frame sent after it as `<saved name>.thumb.jpg` and shown as its tile in every
+   *  app. A second upload on the same rail; its answer is `thumbnail`. Refused for anything else. */
   thumbnail?: Uint8Array | Blob | undefined;
+  /** Public codes to share it with once it is stored. A failed share leaves the upload in place: `ShareAfterUploadError`. */
+  shareWith?: readonly string[] | undefined;
 }
 
 /** `PutOptions` as a rail reads them: `thumbOf` links a preview picture to its stored video. */
@@ -150,6 +148,8 @@ interface PutFacts {
   parts: number;
   /** When `thumbnail` was passed: the picture's own answer, a review when this is one. */
   thumbnail?: PutResult | PutReview;
+  /** When `shareWith` was passed: each share sent, in that order. */
+  shares?: SentShare[];
 }
 
 interface Uploaded extends PutFacts {
