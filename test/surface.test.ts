@@ -13,6 +13,18 @@ import * as sdk from "../src/index.ts";
 
 const here = join(import.meta.dirname, "..");
 
+/**
+ * Every method a client answers to. `Nmts` extends `NmtsWallet` (the wallet's half, its own file
+ * only for length), so the class's own prototype is not all of it: walk up to `Object`.
+ */
+function methodsOf(cls: { prototype: object }): string[] {
+  const names = new Set<string>();
+  for (let at: object | null = cls.prototype; at !== null && at !== Object.prototype; at = Reflect.getPrototypeOf(at)) {
+    for (const name of Object.getOwnPropertyNames(at)) if (name !== "constructor") names.add(name);
+  }
+  return [...names];
+}
+
 /** Every code file under `examples/`, however deep. */
 function recipes(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true, recursive: true })
@@ -30,11 +42,12 @@ test("the package exports one class, and its methods are the ones the README sho
     for (const m of readFileSync(file, "utf8").matchAll(/\bnmts\.(\w+)\(/g)) shown.add(m[1]);
   }
   assert.ok(shown.size >= 3, "the README shows no calls");
-  const proto = Object.getOwnPropertyNames(sdk.Nmts.prototype).filter((n) => n !== "constructor");
+  const proto = methodsOf(sdk.Nmts);
   for (const name of shown) assert.ok(proto.includes(name), `README calls nmts.${name}() and the class has no such method`);
   assert.deepEqual(proto.sort(), [
     "account",
     "allLinks",
+    "buyStorage",
     "erase",
     "extend",
     "get",
@@ -64,6 +77,7 @@ test("the package exports one class, and its methods are the ones the README sho
     // ⚠ A getter as well: the README shows `nmts.shares.received()` and its two siblings.
     "shares",
     "splitStorage",
+    "sponsor",
     "storage",
     "transferStorage",
     "unshare",
@@ -99,7 +113,7 @@ test("AGENTS.md lists every method and getter the class has, under the count it 
   const methods = names(m[2] ?? "");
   const getters = names(m[4] ?? "");
   const listed = [...methods, ...getters].sort();
-  const proto = Object.getOwnPropertyNames(sdk.Nmts.prototype).filter((n) => n !== "constructor").sort();
+  const proto = methodsOf(sdk.Nmts).sort();
   assert.deepEqual(listed, proto);
   assert.equal(m[1], numberWord(methods.length), "the count in the sentence is not the number of methods it lists");
   assert.equal(m[3], numberWord(getters.length), "the count of getters is not the number it lists");
@@ -145,6 +159,12 @@ const NOT_VERBS = new Set([
   //    account and no root, and the verbs that use it are walked through every root by
   //    `put-wallet.test.ts`, `put-external-signer.test.ts` and `storage.test.ts`.
   "pay",
+  // ⛔ `money` IS NOT A VERB ON AN ACCOUNT: the price of an upload, the balances of an address and
+  //    the sponsored-transaction check open no account and hold no key — they are `Nmts.price`,
+  //    `Nmts.balances` and `Nmts.checkSponsored`, statics a program calls before it has one. The
+  //    verbs that do hold a key, `buyStorage` and `sponsor`, are their own files and walked through
+  //    every root by `storage-buy.test.ts` and `sponsor.test.ts`.
+  "money",
 ]);
 
 test("every verb file has a test that walks it through every root", () => {

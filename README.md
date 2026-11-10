@@ -114,6 +114,7 @@ Runnable files in [`examples/`](examples/), one per shape:
 | Node, device, wallet-paid | `pay-from-wallet.mjs` | the price with `dryRun`, then an upload paid in WAL and SUI from the account's own wallet, no credits |
 | Browser, device | `next-embedded/UploadButton.jsx` | a Next.js client component: a file picker, `put({ name, blob })`, the key never leaves the page |
 | Node, managed | `node-managed/server.mjs` | a service holding its customers' keys in a store of its own, `openCode` once per call |
+| Node, your users pay you | `money/` | money in by Stripe, BTCPay (Bitcoin, Lightning, Monero and Zcash through its plugins) or a Monero wallet of your own, a ledger, and your wallet paying for your users' uploads through `sponsor()`; then extending while they pay, a low-balance alert, and what happens when they stop |
 | Node, S3 gateway | `gateway/server.mjs` | a bucket and a key pair per customer, so a Django or Rails storage adapter, rclone or a backup tool stores into that customer's account |
 
 Products one person or a small team could build on this, each with the calls it uses and what is not
@@ -257,6 +258,76 @@ An upload that is interrupted after the storage was bought is finished by the ne
 same file to the same place, **without spending again**: what was bought is written down on this
 machine before the money moves (in the same config directory the command-line tool uses).
 
+## Prices, balances, and paying for your users
+
+Five calls for a business that charges its users its own way and pays the storage itself. None of
+them exchanges coins: turning a customer's payment into WAL and SUI is the business's own treasury
+work, and NMTS never holds anybody's coins.
+
+**`Nmts.price({ bytes, epochs?, network? })`** gives the price of an upload of that size, with no
+account. It seals and splits the file as `put()` does and reads the chain's prices now:
+
+```js
+const p = await Nmts.price({ bytes: 100 * 1024 * 1024, network: "testnet" });
+p.walFrost         // "8664620": storage and write in FROST, the number put({ dryRun }) gives
+p.tipMist          // the relay's tip, in MIST
+p.gasEstimateMist  // chain fees for every part's two transactions, estimated
+p.gasSource        // where the estimate comes from: measured on testnet, scaled by today's gas price
+p.credits          // 102: the same upload on credits (null for a term other than 2 epochs)
+p.encodedBytes     // the size a storage resource needs to hold it (see buyStorage)
+p.parts            // [{ sealedBytes, encodedBytes, storageFrost, writeFrost, tipMist }]
+```
+
+It runs in Node and in a page. `network` defaults to `NMTS_NETWORK`, then mainnet.
+
+**`Nmts.balances(address, { network? })`** gives the WAL and SUI any address holds:
+`{ network, address, wal, sui }`, each `{ amount, why: null }` in base units, or `{ amount: null, why }`
+when the chain did not answer. Null is not zero.
+
+**`nmts.buyStorage({ sizeBytes, epochs?, dryRun?, pay? })`** buys a storage resource with nothing in
+it, paid from the account's wallet (or `pay: { signer }`), from the current epoch for `epochs` (two
+by default). `sizeBytes` is the size once the network has encoded a file, the unit `storage()`
+lists. A file needs at least `Nmts.price({ bytes }).encodedBytes`. Then
+`put(file, { pay: "wallet", storage: id })` writes a file into it and pays only the write. With a
+delegation token it needs `storage_spend`.
+
+```js
+const review = await nmts.buyStorage({ sizeBytes: 70_254_592, epochs: 3, dryRun: true }); // signs nothing
+const { id } = await nmts.buyStorage({ sizeBytes: 70_254_592, epochs: 3 });
+await nmts.put("./report.pdf", { pay: "wallet", storage: id });
+```
+
+**`nmts.sponsor(bytes, limits)`** lets your server sign a user's upload, so your wallet pays and the
+file lands in **their** account. The user's device calls `put(file, { pay: { signer } })` with a signer
+whose address is your wallet and whose `signTransaction` posts the bytes to your server; the server
+checks its own records (has this user paid?) and calls `sponsor`. `sponsor` reads the transaction
+and signs only when all of this holds, and otherwise throws `SPONSOR_REFUSED` with a code and a
+reason, unsigned:
+
+- you are the sender and you pay the gas, on the account's own network;
+- every call is a Walrus reservation, registration, certification or extension of the network's
+  real package and system object, plus the coin plumbing the Sui SDK writes for a payment;
+- every coin paid out has an amount written in the bytes, and goes to you or, as SUI, to an upload
+  relay's tip address;
+- storage reserved is written into in the same transaction and is no bigger than the blob needs;
+- size, term, WAL and SUI (gas budget plus tips) are within `limits`:
+  `{ maxBytes, maxEpochs, maxWalFrost, maxSuiMist, maxGasBudgetMist?, walrusPackageId?, relayTipAddresses? }`.
+
+```js
+const signed = await nmts.sponsor(bytesFromTheDevice, { maxBytes: 512 * 2 ** 20, maxEpochs: 53, maxWalFrost: 2_000_000_000n, maxSuiMist: 100_000_000n });
+// { bytes, signature, spends: { walFrost, suiMist, bytes, epochs, calls } }: send bytes and signature back
+```
+
+`spends` is what you charge the user's balance in your own ledger. `Nmts.checkSponsored(bytes,
+{ ...limits, network, operator })` is the same check with no key, to judge before signing. The
+package, the system object and the relays' tip addresses are read from the chain and the relays and
+kept ten minutes; pin `walrusPackageId` and `relayTipAddresses` in `limits` to trust nothing read.
+The storage belongs to your wallet's address, so you extend it (the same check passes
+`extend(path, { pay: { signer } })`). The standalone recovery program still opens the user's files
+from their key and a recovery list file; its own search of Walrus for a list looks only in wallets
+the key makes. A whole server, with Stripe, BTCPay and Monero payments and a ledger:
+[`examples/money/`](examples/money/).
+
 ## NMTS Heavy — `tier: "heavy"`
 
 `put(file, { tier: "heavy" })` keeps each part of the file whole on Filecoin, with separate storage
@@ -349,6 +420,11 @@ await nmts.extend(path, { epochs?, dryRun?, force?, pay? }) // more storage time
 await nmts.splitStorage(id, { sizeBytes, dryRun?, pay? })   // one storage resource into two
 await nmts.mergeStorage(idA, idB, { dryRun?, pay? })        // two into one
 await nmts.transferStorage(id, toAddress, { dryRun?, pay? }) // to another wallet — cannot be undone
+await nmts.buyStorage({ sizeBytes, epochs?, dryRun?, pay? }) // a storage resource with no file; signs and spends WAL
+await nmts.sponsor(bytes, limits)           // sign a user's upload as this account's wallet, if it passes the check
+await Nmts.price({ bytes, epochs?, network? })     // what an upload costs, with no account
+await Nmts.balances(address, { network? })         // { wal, sui } of any address, with no account
+await Nmts.checkSponsored(bytes, policy)           // sponsor's check with no key: { ok, spends } or { ok: false, code, reason }
 
 blobSource(blob, name)        // a Blob as an upload's bytes, for a file picker, a drag or a fetch
 ```

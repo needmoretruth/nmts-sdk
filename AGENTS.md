@@ -24,13 +24,14 @@ await nmts.put("./notes.txt", { pay: "wallet" });   // instead: THIS SPENDS WAL 
 ```
 
 The package ships type declarations. **The types are the list of what exists** — do not invent a
-method that is not in `dist/index.d.ts`. There are twenty-nine methods: `account`, `walletAddress`,
+method that is not in `dist/index.d.ts`. There are thirty-one methods: `account`, `walletAddress`,
 `wallets`, `setActiveWallet`, `list`, `put`, `get`, `getTo`, `mkdir`, `move`, `rename`, `remove`,
 `restore`, `erase`, `makeLink`, `listLinks`, `allLinks`, `revokeLink`, `revokeAllLinks`,
-`recoveryList`, `recoveryCopy`, `setRecoveryCopy`, `storage`, `extend`, `splitStorage`,
-`mergeStorage`, `transferStorage`, `share`, `unshare`; three getters, `openers`, `publicCodes` and
+`recoveryList`, `recoveryCopy`, `setRecoveryCopy`, `storage`, `buyStorage`, `extend`, `splitStorage`,
+`mergeStorage`, `transferStorage`, `sponsor`, `share`, `unshare`; three getters, `openers`, `publicCodes` and
 `shares`; and the statics that
-make a client: `device`, `managed`, `fromWallet` and `fromEnv` (`business` makes the business client).
+make a client: `device`, `managed`, `fromWallet` and `fromEnv` (`business` makes the business client),
+and three that need no account: `price`, `balances` and `checkSponsored`.
 
 | | What it does | Where it comes from |
 |---|---|---|
@@ -168,8 +169,18 @@ of them is one.
 
 | `storage({ pay? })` | nothing | chain | The storage resources this account's wallet holds that are not bound inside a file: `{ id, sizeBytes, startEpoch, endEpoch, status }`. `pay: { signer }` lists a wallet the caller holds instead |
 | `extend(path, { epochs?, dryRun?, force?, pay? })` | ⛔ WAL and the chain fee, from the wallet | chain + server | More time for one file. `dryRun: true` returns the price and signs nothing; without it the call is the agreement. Refuses a file nowhere near its end unless `force`. `EXTEND_RECORDED_LATE` means the storage is bought and the record failed — **do not call again**. With a delegation token it needs `storage_spend`, read from the token before anything is signed |
+| `buyStorage({ sizeBytes, epochs?, dryRun?, pay? })` | ⛔ WAL and the chain fee, from the wallet | chain | A storage resource with no file in it, from the current epoch for `epochs` (default 2). `sizeBytes` is the encoded size, the unit `storage()` lists; a file needs `Nmts.price(...).encodedBytes`. `{ id, digest, sizeBytes, startEpoch, endEpoch, wal }`. Then `put(file, { pay, storage: id })`. With a delegation token it needs `storage_spend` |
+| `sponsor(bytes, limits)` | ⛔ what the transaction spends, from this account's wallet | chain (facts) | For an operator's server: signs a transaction a customer's device built, as this account's wallet, only if it is Walrus storage work within `limits` (`maxBytes`, `maxEpochs`, `maxWalFrost`, `maxSuiMist`, optional `maxGasBudgetMist`, `walrusPackageId`, `relayTipAddresses`). `{ bytes, signature, spends }`; anything else throws `SPONSOR_REFUSED` with a code and a reason, unsigned. With a delegation token it needs `storage_spend` |
 | `splitStorage(id, { sizeBytes, dryRun?, pay? })` · `mergeStorage(idA, idB, { dryRun?, pay? })` | the chain fee | chain | One resource into two, or two into one. `dryRun: true` first |
 | `transferStorage(id, toAddress, { dryRun?, pay? })` | the chain fee | chain | ⛔ **Cannot be undone.** Hands a resource to another wallet; no file goes with it. Ask the person before you write this call |
+
+Three statics answer with no account and no key:
+
+| Call | Network | Notes |
+|---|---|---|
+| `Nmts.price({ bytes, epochs?, network?, padding?, partSize? })` | chain | What `put` of that many bytes would cost on the wallet tier, and in credits: `{ parts, sealedBytes, encodedBytes, walFrost, tipMist, gasEstimateMist, gasSource, credits, endEpoch }`. The gas is an estimate measured on testnet; `gasSource` says so. `credits` is null for a term other than 2 epochs |
+| `Nmts.balances(address, { network? })` | chain | `{ network, address, wal, sui }`, each `{ amount, why: null }` in base units or `{ amount: null, why }`. Null is not zero |
+| `Nmts.checkSponsored(bytes, policy)` | chain (facts) | The check `sponsor` runs, with no key: `{ ok: true, spends }` or `{ ok: false, code, reason }`. `policy` is `limits` plus `network` and `operator` |
 
 The five that edit the list refuse with an `NmtsError` whose `code` is `NOT_FOUND` (nothing at that
 path, or the path names two things), `NAME_TAKEN` (a move, a rename or a restore would land on a name
@@ -312,7 +323,9 @@ putOptions?, bucketNames?, virtualHostBase?, stagingDir?, log?, now? })`, which 
 
 - **Put coins into the wallet.** `pay: "wallet"` spends the wallet this account pays from; getting
   WAL and SUI into it means somebody sending coins to the address `walletAddress()` returns.
-  Nothing here buys or exchanges coins.
+  Nothing here buys or exchanges coins. A business that takes payment in money or other coins and
+  pays its customers' storage from its own wallet (`sponsor`) does the exchange itself; recipes in
+  `examples/money/`.
 - **Buy, sell or move credits.** There is no such call anywhere, on purpose.
 - **Make accounts or keys.** See the table above.
 - **Send a gift.** Never automated. A person does that, every time, from the browser or `nmts wallet donate`.

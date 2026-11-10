@@ -2,7 +2,7 @@
 
 import { NmtsError, type ReadOptions } from "@needmoretruth/nmts-cli/portable";
 
-import type { Nmts } from "../nmts.ts";
+import type { NmtsWallet } from "./wallet.ts";
 import type { Opened } from "../session.ts";
 
 /**
@@ -22,15 +22,15 @@ export interface ClientInsides {
   read(): ReadOptions | undefined;
 }
 
-const insides = new WeakMap<Nmts, ClientInsides>();
+const insides = new WeakMap<NmtsWallet, ClientInsides>();
 
 /** Said once, by the constructor, for the client it is building. */
-export function rememberInsides(client: Nmts, of: ClientInsides): void {
+export function rememberInsides(client: NmtsWallet, of: ClientInsides): void {
   insides.set(client, of);
 }
 
 /** The insides of a client this package made. Anything else is a caller's own object. */
-export function insidesOf(client: Nmts): ClientInsides {
+export function insidesOf(client: NmtsWallet): ClientInsides {
   const found = insides.get(client);
   if (found === undefined) {
     throw new NmtsError("NOT_A_CLIENT: that is not an Nmts client this package made.", {

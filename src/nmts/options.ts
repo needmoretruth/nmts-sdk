@@ -72,6 +72,14 @@ export function optionsOf(from: NmtsOptions): NmtsOptions {
   };
 }
 
+/** What an account-free static (`price`, `balances`, `checkSponsored`) talks to and through. */
+export type ChainOptions = Pick<NmtsOptions, "relay" | "suiRpc" | "fetch">;
+
+/** The same, taken off a caller's object so nothing else in it reaches the package underneath. */
+export function chainOptionsOf(from: ChainOptions): NmtsOptions {
+  return { relay: from.relay, suiRpc: from.suiRpc, fetch: from.fetch };
+}
+
 /** One host or several, as the one shape everything underneath reads. */
 function suiRpcList(named: string | readonly string[] | undefined): readonly string[] | undefined {
   if (named === undefined) return undefined;

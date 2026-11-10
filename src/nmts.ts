@@ -20,7 +20,9 @@
 //
 // ⚠ WHAT IS NOT A METHOD LIVES IN `nmts/`, and this file is still the name both entry points and
 //   the gateway import: the option shapes, the weak map the gateway reads a client's account out
-//   of, and the two things `put` needs before it starts.
+//   of, and the two things `put` needs before it starts. The wallet's methods (which wallet pays,
+//   storage resources, buying, sponsoring, prices) are `nmts/wallet.ts`, a base class this one
+//   extends, so they are still methods of the one client.
 
 import { newAccountCode, registrationProofOf, type ReadOptions } from "@needmoretruth/nmts-cli/portable";
 
@@ -32,8 +34,9 @@ import { listEntries, type Entry, type ListOptions } from "./list.ts";
 import { credentialsFromWallet, openersOn, type Openers, type WalletCredentials } from "./openers.ts";
 import { rememberInsides } from "./nmts/insides.ts";
 import { optionsOf, useOptions } from "./nmts/options.ts";
-import type { AccountInfo, GetOptions, GetToOptions, NmtsOptions, WalletAddressOptions } from "./nmts/options.ts";
+import type { AccountInfo, GetOptions, GetToOptions, NmtsOptions } from "./nmts/options.ts";
 import { putVia } from "./nmts/uploading.ts";
+import { NmtsWallet } from "./nmts/wallet.ts";
 import { nodeSeams } from "./node-seams.ts";
 import { makeFolderAt, moveTo, removeToTrash, renameTo, restoreFromTrash } from "./organise.ts";
 import type { MkdirResult, MoveResult, RemoveResult, RenameResult, RestoreResult } from "./organise.ts";
@@ -43,22 +46,20 @@ import { recoveryCopyOf, recoveryListOf, setRecoveryCopyOf, type RecoveryCopy, t
 import { shareFile, sharesOn, unshareOf, type SentShare, type ShareOptions, type Shares } from "./shares.ts";
 import type { HeavyPut, HeavyPutOptions, HeavyReview, PutInput, PutOptions, PutResult, PutReview } from "./put.ts";
 import { deviceRoot, managedRoot, type Credentials, type ManagedCredentials, type Root } from "./root.ts";
-import type { PayerOptions } from "./pay.ts";
-import * as storageControl from "./storage.ts";
 import { openAccount, withAccount, type Opened } from "./session.ts";
-import { addressOfWallet, setActiveWallet, wallets, type ActiveWallet, type WalletInfo } from "./wallets.ts";
 
 // The shapes a caller hands in and gets back, and the door this package's own Node-only modules
 // read a client's opened account through. Both entry points and the gateway import them from here.
 export type { AccountInfo, GetOptions, GetToOptions, NmtsOptions, WalletAddressOptions } from "./nmts/options.ts";
 export { insidesOf, type ClientInsides } from "./nmts/insides.ts";
 
-export class Nmts {
+export class Nmts extends NmtsWallet {
   readonly #root: Root;
   readonly #options: NmtsOptions;
   #opened: Opened | null = null;
 
   constructor(root: Root, options: NmtsOptions = {}) {
+    super();
     this.#root = root;
     this.#options = { ...options };
     rememberInsides(this, { opened: () => this.#account(), read: () => this.#read() });
@@ -150,19 +151,6 @@ export class Nmts {
   }
 
   /**
-   * The Sui address of one of the wallets the account code derives — where a developer who pays
-   * for storage from their own coins sends them. Nothing is signed.
-   *
-   * With no argument it is the wallet the account PAYS FROM, read out of the sealed file list;
-   * when that cannot be read this throws rather than answering the first wallet, because coins
-   * sent to an address nobody chose are coins the account cannot spend. `{ index }` names one
-   * directly and is offline — numbers come from the key, so every one of them already exists.
-   */
-  async walletAddress(options: WalletAddressOptions = {}): Promise<string> {
-    return addressOfWallet(this.#account(), options.index);
-  }
-
-  /**
    * The wallets that open this account: which they are, attaching one, taking one off, and the
    * sealed copy of one that the recovery tool opens with a signature.
    *
@@ -179,20 +167,6 @@ export class Nmts {
    *  or derive one offline. The same on every root, because every code comes from the key. */
   get publicCodes(): PublicCodes {
     return publicCodesOn(this.#account());
-  }
-
-  /** Every wallet this account has, made here or seen used on a chain, the paying one marked. Nothing is spent or written. */
-  async wallets(): Promise<WalletInfo[]> {
-    return wallets(this.#account());
-  }
-
-  /**
-   * Say which of this key's wallets pays for storage from now on. It is the ACCOUNT's choice, not this
-   * machine's: the number rides inside the sealed file list, so every device and program on this
-   * account pays from that address afterwards. Nothing is created — every number already exists.
-   */
-  async setActiveWallet(index: number): Promise<ActiveWallet> {
-    return setActiveWallet(this.#account(), index);
   }
 
   /** Every live file and folder, as paths. Nothing is spent. `{ trash: true }` adds the trash, each with `trashedAt`. */
@@ -284,37 +258,6 @@ export class Nmts {
   async put(file: PutInput | Uint8Array, options?: PutOptions): Promise<PutResult>;
   async put(file: PutInput | Uint8Array, options: PutOptions | HeavyPutOptions = {}): Promise<PutResult | PutReview | HeavyPut | HeavyReview> {
     return putVia(this.#account(), file, options);
-  }
-
-  /**
-   * Every free storage resource the paying wallet holds, usable first. Nothing is spent.
-   * `pay: { signer }` lists what a wallet you hold holds instead — what that signer can act on.
-   */
-  async storage(options: PayerOptions = {}): Promise<storageControl.StorageResourceInfo[]> {
-    return storageControl.storageResources(this.#account(), options);
-  }
-
-  /**
-   * Buy one stored file more time. **This spends WAL and SUI** from the paying wallet; `dryRun: true`
-   * only prices it. ⛔ What a wallet you hold paid for, that wallet extends: pass the same `pay`.
-   */
-  async extend(path: string, options: storageControl.ExtendOptions = {}) {
-    return storageControl.extendFile(this.#account(), path, options);
-  }
-
-  /** Cut a storage resource in two: it keeps `sizeBytes` and the rest becomes a second one. **This spends SUI.** */
-  async splitStorage(id: string, options: storageControl.SplitOptions) {
-    return storageControl.splitStorageResource(this.#account(), id, options);
-  }
-
-  /** Join two of this wallet's storage resources into one. **This spends SUI**, and the contract judges the pair. */
-  async mergeStorage(idA: string, idB: string, options: storageControl.StorageOpOptions = {}) {
-    return storageControl.mergeStorageResources(this.#account(), idA, idB, options);
-  }
-
-  /** Hand a storage resource to a Sui address. **This spends SUI.** ⛔ It cannot be undone; no file goes with it. */
-  async transferStorage(id: string, to: string, options: storageControl.StorageOpOptions = {}) {
-    return storageControl.transferStorageResource(this.#account(), id, to, options);
   }
 
   /** One file, whole and checked, in memory. Nothing is spent. */

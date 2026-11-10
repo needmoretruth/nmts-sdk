@@ -367,19 +367,19 @@ function walletOf({ budget }: ExtendPlan): StorageWallet {
 }
 
 /**
- * Refuse a delegated call that could sign and then fail to be recorded.
+ * Refuse a delegated call that spends from the wallet when its token was not minted to spend.
  *
- * ⛔ BEFORE THE SIGNATURE, because the storage would already be paid for by the time the server
- *    refused to write the new date down. What the token was minted for is in the token, which this
- *    process holds — `currentDelegationScope` reads it, asking a token function for the token it
- *    would send now.
+ * ⛔ BEFORE THE SIGNATURE. For an extension the storage would already be paid for by the time the
+ *    server refused to write the new date down; for a purchase (`storage-buy.ts`) the business that
+ *    minted the token said this account may not spend, and a purchase is spending. What the token
+ *    was minted for is in the token, which this process holds — `currentDelegationScope` reads it,
+ *    asking a token function for the token it would send now.
  */
-async function refuseWithoutSpendScope(opened: Opened): Promise<void> {
+export async function refuseWithoutSpendScope(opened: Opened, because = "so the NMTS server would refuse to record the extension"): Promise<void> {
   const scope = await currentDelegationScope(opened.root.identity);
   if (scope === null || (scope & SCOPE_BITS.storage_spend) !== 0) return;
   throw new NmtsError(
-    "DELEGATION_SCOPE: this delegation token was minted without `storage_spend`, so the NMTS server " +
-      "would refuse to record the extension.",
+    `DELEGATION_SCOPE: this delegation token was minted without \`storage_spend\`, ${because}.`,
     {
       exitCode: 3,
       nextStep:

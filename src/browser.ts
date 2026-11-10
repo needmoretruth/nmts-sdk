@@ -124,6 +124,13 @@ export type {
   TransferResult,
   TransferReview,
 } from "./storage.ts";
+// Money paths: buying a resource with no file, an upload's price with no account, any address's
+// balances, and the operator's check-then-sign for an upload its wallet pays for.
+export type { BuyStorageOptions, BuyStorageResult, BuyStorageReview } from "./storage-buy.ts";
+export type { Balance, Balances, NetworkOption, Price, PriceOptions } from "./money.ts";
+export type { SponsorLimits, Sponsored } from "./sponsor.ts";
+export type { ChainOptions } from "./nmts/options.ts";
+export type { QuotedPart, SponsorPolicy, SponsorRefusal, SponsorSpend, SponsorVerdict } from "@needmoretruth/nmts-cli/portable";
 export type { GetResult } from "./get.ts";
 export type { AccountLink, ListedLink, MadeLink, MakeLinkOptions, OpenedLinkBytes, OpenLinkOptions } from "./links.ts";
 export { blobSource } from "./source-blob.ts";
